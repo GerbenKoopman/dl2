@@ -1,0 +1,20 @@
+name: erwin
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.12
+  - pytorch=2.5.0
+  - pip
+  - addict
+  - cython
+  - einops
+  - h5py
+  - numpy
+  - setuptools
+  - tensorflow
+  - matplotlib
+  - tqdm
+  - timm
+  - wandb
