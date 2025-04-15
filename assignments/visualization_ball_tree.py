@@ -54,7 +54,7 @@ for level in range(0, 6):
 
     plt.tight_layout()
     # plt.show()
-    plt.savefig(f"level_{level}.png")
+    plt.savefig(f"assignments/images/level_{level}.png")
     plt.close()
 
 print("Saved ball tree visualizations for levels 0 through 5.")
