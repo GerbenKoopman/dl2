@@ -245,7 +245,7 @@ class BasicLayer(nn.Module):
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
 
-        if self.rotate[1]: # if rotation is enabled, it will be used in the second block
+        if len(self.rotate) > 1 and self.rotate[1]: # if rotation is enabled, it will be used in the second block
             assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation"
             tree_idx_rot_inv = torch.argsort(node.tree_idx_rot) # map from rotated to original
 
