@@ -75,7 +75,7 @@ node_features = torch.randn(num_points * bs, config["c_in"]).cuda()
 node_positions = torch.rand(num_points * bs, config["dimensionality"]).cuda()
 batch_idx = torch.repeat_interleave(torch.arange(bs), num_points).cuda()
 
-theta = np.pi / 4  # 45-degree rotation
+theta = np.pi / 4.5  # 40 degrees rotation (intentionally not 90 or 45)
 rotation_matrix = torch.tensor(
     [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]],
     dtype=torch.float32,
