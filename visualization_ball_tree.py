@@ -30,24 +30,31 @@ for level in range(0, 6):
     groups = grouped_points.reshape(-1, node_size, dim)
 
     fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111, projection='3d')
+    ax = fig.add_subplot(111, projection="3d")
 
     # Different color per group
-    colors = cm.get_cmap("tab20", groups.shape[0])
+    colors = plt.get_cmap("tab20", groups.shape[0])
 
     for i, group in enumerate(groups):
         group_np = group.cpu().numpy()
-        ax.scatter(group_np[:, 0], group_np[:, 1], group_np[:, 2], color=colors(i), label=f'Group {i}', s=10)
+        ax.scatter(
+            group_np[:, 0],
+            group_np[:, 1],
+            group_np[:, 2],
+            color=colors(i),
+            label=f"Group {i}",
+            s=10,
+        )
 
-    ax.set_title(f'Ball Tree Level {level} - {groups.shape[0]} Groups')
+    ax.set_title(f"Ball Tree Level {level} - {groups.shape[0]} Groups")
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.view_init(elev=20, azim=30)
 
     plt.tight_layout()
-    plt.show()
-    # plt.savefig(f'level_{level}.png')
-    # plt.close()
+    # plt.show()
+    plt.savefig(f"level_{level}.png")
+    plt.close()
 
 print("Saved ball tree visualizations for levels 0 through 5.")
