@@ -70,7 +70,7 @@ config = {
     "rotate": 0,
 }
 model = ErwinTransformer(**config).cuda()
-bs = 1028
+bs = 1024
 num_points = 1024
 node_features = torch.randn(num_points * bs, config["c_in"]).cuda()
 node_positions = torch.rand(num_points * bs, config["dimensionality"]).cuda()
