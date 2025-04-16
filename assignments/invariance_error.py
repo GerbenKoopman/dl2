@@ -1,8 +1,3 @@
-# Implement the invariance test as a function
-# ’invariance error(model, x: Tensor, pos: Tensor, R: Tensor, **kwargs) → float’
-# that computes the invariance error of ERWIN for a batch of data.
-# ||Erwin(x, pos) − Erwin(x, pos @ R)||
-
 import sys
 import os
 
@@ -44,10 +39,16 @@ def invariance_error(
     output_original = model(x, pos, batch_idx, **kwargs)
     output_rotated = model(x, pos_rotated, batch_idx, **kwargs)
 
-    # Compute the invariance error
-    error = torch.norm(output_original - output_rotated, p=2)
+    # Take the mean of the outputs over the batch dimension
+    output_original = output_original.mean(dim=0)
+    output_rotated = output_rotated.mean(dim=0)
 
-    return error
+    # Compute the invariance error as the normalized ratio of the difference
+    normalized_ratio = torch.norm(output_original - output_rotated) / torch.norm(
+        output_rotated
+    )
+
+    return normalized_ratio
 
 
 config = {
@@ -69,7 +70,7 @@ config = {
     "rotate": 0,
 }
 model = ErwinTransformer(**config).cuda()
-bs = 1
+bs = 1028
 num_points = 1024
 node_features = torch.randn(num_points * bs, config["c_in"]).cuda()
 node_positions = torch.rand(num_points * bs, config["dimensionality"]).cuda()
