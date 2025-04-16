@@ -90,4 +90,12 @@ out = invariance_error(
     batch_idx,
 )
 
+# Append out to .csv file
+out_file = "assignments/invariance_error.csv"
+if not os.path.exists(out_file):
+    with open(out_file, "w") as f:
+        f.write("invariance_error\n")
+with open(out_file, "a") as f:
+    f.write(f"{out.item()}\n")
+
 print(f"Invariance error: {out}")
