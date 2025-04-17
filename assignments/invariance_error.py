@@ -1,12 +1,5 @@
-import sys
-import os
-
 import torch
-import numpy as np
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from models.erwin import ErwinTransformer
+import copy
 
 
 def invariance_error(
@@ -36,8 +29,8 @@ def invariance_error(
     pos_rotated = torch.matmul(pos, R.T)
 
     # Compute the output for both original and rotated inputs
-    output_original = model(x, pos, batch_idx, **kwargs)
-    output_rotated = model(x, pos_rotated, batch_idx, **kwargs)
+    output_original = model(x, pos, batch_idx, **copy.deepcopy(kwargs))
+    output_rotated = model(x, pos_rotated, batch_idx, **copy.deepcopy(kwargs))
 
     # Take the mean of the outputs over the batch dimension
     output_original = output_original.mean(dim=0)
@@ -49,53 +42,3 @@ def invariance_error(
     )
 
     return normalized_ratio
-
-
-config = {
-    "c_in": 16,
-    "c_hidden": 16,
-    "ball_sizes": [128],
-    "enc_num_heads": [
-        1,
-    ],
-    "enc_depths": [
-        1,
-    ],
-    "dec_num_heads": [],
-    "dec_depths": [],
-    "strides": [],
-    "mp_steps": 0,
-    "decode": True,
-    "dimensionality": 2,
-    "rotate": 0,
-}
-model = ErwinTransformer(**config).cuda()
-bs = 1024
-num_points = 1024
-node_features = torch.randn(num_points * bs, config["c_in"]).cuda()
-node_positions = torch.rand(num_points * bs, config["dimensionality"]).cuda()
-batch_idx = torch.repeat_interleave(torch.arange(bs), num_points).cuda()
-
-theta = np.pi / 4.5  # 40 degrees rotation (intentionally not 90 or 45)
-rotation_matrix = torch.tensor(
-    [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]],
-    dtype=torch.float32,
-).cuda()
-
-out = invariance_error(
-    model,
-    node_features,
-    node_positions,
-    rotation_matrix,
-    batch_idx,
-)
-
-# Append out to .csv file
-out_file = "assignments/invariance_error.csv"
-if not os.path.exists(out_file):
-    with open(out_file, "w") as f:
-        f.write("invariance_error\n")
-with open(out_file, "a") as f:
-    f.write(f"{out.item()}\n")
-
-print(f"Invariance error: {out}")
