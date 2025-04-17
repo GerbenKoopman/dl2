@@ -9,7 +9,6 @@ if [ -d "datasets/$dataset" ]; then
     exit 1
 fi
 
-# Do a switch case between a, b, c, d. use curl
 case $dataset in
     cosmology)
         curl -o datasets/cosmology.zip https://zenodo.org/api/records/11479419/files-archive

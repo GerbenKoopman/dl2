@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
 #SBATCH --time=23:59:00
-#SBATCH --output=out/tuning_u_%A.out
+#SBATCH --output=logs/setup_%A.out
 
 module purge
 module load 2023

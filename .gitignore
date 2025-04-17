@@ -1,5 +1,6 @@
 balltree/
 datasets/
+logs/
 
 # Prerequisites
 *.d
