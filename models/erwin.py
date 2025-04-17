@@ -368,11 +368,11 @@ class ErwinTransformer(nn.Module):
         elif isinstance(m, nn.LayerNorm):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
-    
-    def forward(self, node_features: torch.Tensor, node_positions: torch.Tensor, batch_idx: torch.Tensor, edge_index: torch.Tensor = None, tree_idx: torch.Tensor = None, tree_mask: torch.Tensor = None, radius: float = None, **kwargs):
+
+    def forward(self, node_features: torch.Tensor, node_positions: torch.Tensor, batch_idx: torch.Tensor, edge_index: torch.Tensor = None, tree_idx: torch.Tensor = None, tree_mask: torch.Tensor = None, radius: float = None, tree_idx_rot: torch.Tensor = None, **kwargs):
         with torch.no_grad():
             # if not given, build the ball tree and radius graph
-            if tree_idx is None and tree_mask is None:
+            if tree_idx is None and tree_mask is None and tree_idx_rot is None:
                 tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, self.strides, self.ball_sizes, self.rotate)
             if edge_index is None and self.embed.mp_steps:
                 assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
