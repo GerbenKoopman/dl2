@@ -71,5 +71,4 @@ fi
 # install c++ balltree implementation
 cd balltree
 python setup.py install
-
 cd ..
