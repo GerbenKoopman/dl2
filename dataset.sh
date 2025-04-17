@@ -30,7 +30,7 @@ esac
 
 for file in datasets/*.zip; do
     # Unzip the file
-    unzip -u $file -d "${file%.zip}"
+    unzip -o $file -d "${file%.zip}"
     # Remove the zip file
     rm $file
 done
