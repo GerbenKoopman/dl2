@@ -1,0 +1,33 @@
+# Invariant equation eq.9
+# Class located at ± models/pointtransformer.py:190
+import torch
+
+
+# START OLD CODE
+class BallMSA(nn.Module):
+    def __init__(self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3):
+        ...
+        self.pe_proj = nn.Linear(dimensionality, dim)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        x = x + self.pe_proj(self.compute_rel_pos(pos))
+# END OLD CODE
+
+
+# START PATCHED CODE
+class BallMSA(nn.Module):
+    def __init__(self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3):
+        ...
+        self.pe_proj = nn.Linear(1, dim)
+
+    @torch.no_grad()
+    def compute_rel_dist(self, pos: torch.Tensor):
+        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
+        pos = pos.view(num_balls, self.ball_size, dim)
+        rel = pos - pos.mean(dim=1, keepdim=True)       # (B, S, d)
+        dist = rel.norm(dim=2, keepdim=True)            # (B, S, 1)  scalar per leaf
+        return dist.view(-1, 1)                         # (B*S, 1)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        x = x + self.pe_proj(self.compute_rel_dist(pos))
+# END PATCHED CODE
