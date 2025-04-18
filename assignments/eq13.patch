@@ -1,0 +1,40 @@
+# Invariant equation eq.13
+# Class located at ± models/pointtransformer.py:144
+import torch
+
+
+# START OLD CODE
+class BallUnpooling(nn.Module):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+        ...
+        input_dim = stride * dim + stride * dimensionality
+
+    def forward(self, node: Node) -> Node:
+        with torch.no_grad():
+            rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
+            rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
+
+        x = torch.cat([node.x, rel_pos], dim=-1)
+        node.children.x = self.norm(node.children.x + rearrange(self.proj(x), "n (m d) -> (n m) d", m=self.stride))
+
+        return node.children
+# END OLD CODE
+
+
+# START PATCHED CODE
+class BallUnpooling(nn.Module):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+        ...
+        input_dim = stride * dim + stride * 1
+
+    def forward(self, node: Node) -> Node:
+        with torch.no_grad():
+            rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
+            rel_dist = torch.norm(rel_pos, dim=2)  # shape: (n, m)
+
+        # Concatenate node features with relative distances
+        x = torch.cat([node.x, rel_dist], dim=-1)
+        node.children.x = self.norm(node.children.x + rearrange(self.proj(x), "n (m d) -> (n m) d", m=self.stride))
+
+        return node.children
+# END PATCHED CODE

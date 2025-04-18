@@ -152,16 +152,18 @@ class BallUnpooling(nn.Module):
     def __init__(self, dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        input_dim = stride * dim + stride * dimensionality
+        input_dim = stride * dim + stride * 1
         self.proj = nn.Linear(input_dim, stride * dim)
         self.norm = nn.BatchNorm1d(dim)
 
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
+            # Calculate relative positions
             rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
-            rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
+            rel_dist = torch.norm(rel_pos, dim=2)  # shape: (n, m)
 
-        x = torch.cat([node.x, rel_pos], dim=-1)
+        # Concatenate node features with relative distances
+        x = torch.cat([node.x, rel_dist], dim=-1)
         node.children.x = self.norm(node.children.x + rearrange(self.proj(x), "n (m d) -> (n m) d", m=self.stride))
 
         return node.children
