@@ -121,21 +121,21 @@ class BallPooling(nn.Module):
     def __init__(self, dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        input_dim = stride * dim + stride * dimensionality
+        input_dim = stride * dim + stride * 1
         self.proj = nn.Linear(input_dim, stride * dim)
         self.norm = nn.BatchNorm1d(stride * dim)
 
     def forward(self, node: Node) -> Node:
-        if self.stride == 1: # no pooling
+        if self.stride == 1:  # no pooling
             return Node(x=node.x, pos=node.pos, batch_idx=node.batch_idx, children=node)
 
         with torch.no_grad():
             batch_idx = node.batch_idx[::self.stride]
             centers = reduce(node.pos, "(n s) d -> n d", 'mean', s=self.stride)
             pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
-            rel_pos = rearrange(pos - centers[:, None], "n s d -> n (s d)")
+            distances = torch.norm(pos - centers[:, None], dim=2)   # shape: (n, s)
 
-        x = torch.cat([rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1)
+        x = torch.cat([rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), distances], dim=1)
         x = self.norm(self.proj(x))
 
         return Node(x=x, pos=centers, batch_idx=batch_idx, children=node)
