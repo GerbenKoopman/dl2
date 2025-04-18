@@ -177,7 +177,7 @@ class BallMSA(nn.Module):
 
         self.qkv = nn.Linear(dim, 3 * dim)
         self.proj = nn.Linear(dim, dim)
-        self.pe_proj = nn.Linear(dimensionality, dim)
+        self.pe_proj = nn.Linear(1, dim)
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
 
     @torch.no_grad()
@@ -193,8 +193,16 @@ class BallMSA(nn.Module):
         pos = pos.view(num_balls, self.ball_size, dim)
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
 
+    @torch.no_grad()
+    def compute_rel_dist(self, pos: torch.Tensor):
+        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
+        pos = pos.view(num_balls, self.ball_size, dim)
+        rel = pos - pos.mean(dim=1, keepdim=True)       # (B, S, d)
+        dist = rel.norm(dim=2, keepdim=True)            # (B, S, 1)  scalar per leaf
+        return dist.view(-1, 1)                         # (B*S, 1)
+
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
-        x = x + self.pe_proj(self.compute_rel_pos(pos))
+        x = x + self.pe_proj(self.compute_rel_dist(pos))
         q, k, v = rearrange(self.qkv(x), "(n m) (H E K) -> K n H m E", H=self.num_heads, m=self.ball_size, K=3)
         x = F.scaled_dot_product_attention(q, k, v, attn_mask=self.create_attention_mask(pos))
         x = rearrange(x, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
