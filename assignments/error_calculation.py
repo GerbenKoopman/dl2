@@ -16,11 +16,12 @@ pwd = Path(__file__).parent.resolve()
 
 def calculate_error(config_name: str,
                     model_config: dict,
+                    run_name: str = "fixed_tree",
                     batch_size: int = 1,
                     num_points: int = 1024,
                     theta: float = np.pi / 4.5,
                     fixed_balltree: bool = False):
-    print(config_name)
+    print(f"Calculating error for {config_name} with run name {run_name}")
     model = ErwinTransformer(**model_config).cuda()
 
     # Calculate the points, features, batch indeces, and the ball tree
@@ -46,8 +47,6 @@ def calculate_error(config_name: str,
         kwargs["tree_mask"] = tree_mask
         kwargs["tree_idx_rot"] = tree_idx_rot
 
-    print(kwargs)
-
     out = invariance_error(
         model,
         node_features,
@@ -61,8 +60,8 @@ def calculate_error(config_name: str,
     out_dir = pwd / "invariance_error"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    with open(out_dir / f"{config_name}_{'fixed' if fixed_balltree else ''}.csv", "w") as f:
-        f.write(f"{out.item()}\n")
+    with open(out_dir / f"{config_name}.csv", "a") as f:
+        f.write(f"{run_name},{out.item()}\n")
 
     print(f"Invariance error: {out}")
 
@@ -99,5 +98,4 @@ config_pool = {
 
 for name, model_config in [("single", config_single), ("pool", config_pool)]:
     # Calculate the error with and without fixed balltree
-    calculate_error(name, model_config, fixed_balltree=False)
-    calculate_error(name, model_config, fixed_balltree=True)
+    calculate_error(name, model_config, "fixed_tree-eq9-eq12", fixed_balltree=True)
