@@ -114,14 +114,23 @@ class BallPooling(nn.Module):
     """
     Pooling of leaf nodes in a ball (eq. 12):
         1. select balls of size 'stride'.
-        2. concatenate leaf nodes inside each ball along with their relative positions to the ball center.
+        2. concatenate leaf nodes inside each ball along with their relative positions/distances to the ball center.
         3. apply linear projection and batch normalization.
         4. the output is the center of each ball endowed with the pooled features.
     """
-    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3, fix_eq12: bool = False):
         super().__init__()
         self.stride = stride
-        input_dim = stride * dim + stride * 1
+        self.fix_eq12 = fix_eq12
+        
+        # Choose input dimension based on whether we're using positions or distances
+        if fix_eq12:
+            # Distance-based (invariant): stride * dim features + stride * 1 distances
+            input_dim = stride * dim + stride * 1
+        else:
+            # Position-based (original): stride * dim features + stride * dimensionality relative positions
+            input_dim = stride * dim + stride * dimensionality
+            
         self.proj = nn.Linear(input_dim, stride * dim)
         self.norm = nn.BatchNorm1d(stride * dim)
 
@@ -133,9 +142,16 @@ class BallPooling(nn.Module):
             batch_idx = node.batch_idx[::self.stride]
             centers = reduce(node.pos, "(n s) d -> n d", 'mean', s=self.stride)
             pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
-            distances = torch.norm(pos - centers[:, None], dim=2)   # shape: (n, s)
+            
+            if self.fix_eq12:
+                # Distance-based approach (invariant)
+                rel_features = torch.norm(pos - centers[:, None], dim=2)  # shape: (n, s)
+            else:
+                # Position-based approach (original)
+                rel_features = rearrange(pos - centers[:, None], "n s d -> n (s d)")
 
-        x = torch.cat([rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), distances], dim=1)
+        # Concatenate node features with either relative positions or distances
+        x = torch.cat([rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), rel_features], dim=1)
         x = self.norm(self.proj(x))
 
         return Node(x=x, pos=centers, batch_idx=batch_idx, children=node)
@@ -144,15 +160,24 @@ class BallPooling(nn.Module):
 class BallUnpooling(nn.Module):
     """
     Ball unpooling (refinement; eq. 13):
-        1. compute relative positions of children (from before pooling) to the center of the ball.
-        2. concatenate the pooled features with the relative positions.
+        1. compute relative positions/distances of children (from before pooling) to the center of the ball.
+        2. concatenate the pooled features with the relative positions/distances.
         3. apply linear projection and self-connection followed by batch normalization.
         4. the output is a refined tree with the same number of nodes as before pooling.
     """
-    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3, fix_eq13: bool = False):
         super().__init__()
         self.stride = stride
-        input_dim = stride * dim + stride * 1
+        self.fix_eq13 = fix_eq13
+        
+        # Choose input dimension based on whether we're using positions or distances
+        if fix_eq13:
+            # Distance-based (invariant): features + scalar distances
+            input_dim = stride * dim + stride * 1
+        else:
+            # Position-based (original): features + vector positions
+            input_dim = stride * dim + stride * dimensionality
+            
         self.proj = nn.Linear(input_dim, stride * dim)
         self.norm = nn.BatchNorm1d(dim)
 
@@ -160,10 +185,16 @@ class BallUnpooling(nn.Module):
         with torch.no_grad():
             # Calculate relative positions
             rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
-            rel_dist = torch.norm(rel_pos, dim=2)  # shape: (n, m)
+            
+            if self.fix_eq13:
+                # Distance-based approach (invariant)
+                rel_features = torch.norm(rel_pos, dim=2)  # shape: (n, m)
+            else:
+                # Position-based approach (original)
+                rel_features = rearrange(rel_pos, "n m d -> n (m d)")
 
-        # Concatenate node features with relative distances
-        x = torch.cat([node.x, rel_dist], dim=-1)
+        # Concatenate node features with either relative positions or distances
+        x = torch.cat([node.x, rel_features], dim=-1)
         node.children.x = self.norm(node.children.x + rearrange(self.proj(x), "n (m d) -> (n m) d", m=self.stride))
 
         return node.children
@@ -171,15 +202,22 @@ class BallUnpooling(nn.Module):
 
 class BallMSA(nn.Module):
     """ Ball Multi-Head Self-Attention (BMSA) module (eq. 8). """
-    def __init__(self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3, fix_eq9: bool = False):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.ball_size = ball_size
+        self.fix_eq9 = fix_eq9
 
         self.qkv = nn.Linear(dim, 3 * dim)
         self.proj = nn.Linear(dim, dim)
-        self.pe_proj = nn.Linear(1, dim)
+        
+        # Create either position-based or distance-based projection
+        if fix_eq9:
+            self.pe_proj = nn.Linear(1, dim)
+        else:
+            self.pe_proj = nn.Linear(dimensionality, dim)
+            
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
 
     @torch.no_grad()
@@ -194,9 +232,10 @@ class BallMSA(nn.Module):
         num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
         pos = pos.view(num_balls, self.ball_size, dim)
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
-
+        
     @torch.no_grad()
     def compute_rel_dist(self, pos: torch.Tensor):
+        """ Relative distance of leafs to the center of the ball (invariant eq. 9). """
         num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
         pos = pos.view(num_balls, self.ball_size, dim)
         rel = pos - pos.mean(dim=1, keepdim=True)       # (B, S, d)
@@ -204,7 +243,12 @@ class BallMSA(nn.Module):
         return dist.view(-1, 1)                         # (B*S, 1)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
-        x = x + self.pe_proj(self.compute_rel_dist(pos))
+        # Apply either position-based or distance-based positional encoding
+        if self.fix_eq9:
+            x = x + self.pe_proj(self.compute_rel_dist(pos))
+        else:
+            x = x + self.pe_proj(self.compute_rel_pos(pos))
+            
         q, k, v = rearrange(self.qkv(x), "(n m) (H E K) -> K n H m E", H=self.num_heads, m=self.ball_size, K=3)
         x = F.scaled_dot_product_attention(q, k, v, attn_mask=self.create_attention_mask(pos))
         x = rearrange(x, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
@@ -212,12 +256,12 @@ class BallMSA(nn.Module):
 
 
 class ErwinTransformerBlock(nn.Module):
-    def __init__(self, dim: int, num_heads: int, ball_size: int, mlp_ratio: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, ball_size: int, mlp_ratio: int, dimensionality: int = 3, fix_eq9: bool = False):
         super().__init__()
         self.ball_size = ball_size
         self.norm1 = nn.RMSNorm(dim)
         self.norm2 = nn.RMSNorm(dim)
-        self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
+        self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality, fix_eq9)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
@@ -237,20 +281,22 @@ class BasicLayer(nn.Module):
         mlp_ratio: int,
         rotate: bool,
         dimensionality: int = 3,
-
+        fix_eq9: bool = False,
+        fix_eq12: bool = False,
+        fix_eq13: bool = False,
     ):
         super().__init__()
 
-        self.blocks = nn.ModuleList([ErwinTransformerBlock(dim, num_heads, ball_size, mlp_ratio, dimensionality) for _ in range(depth)])
+        self.blocks = nn.ModuleList([ErwinTransformerBlock(dim, num_heads, ball_size, mlp_ratio, dimensionality, fix_eq9) for _ in range(depth)])
         self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
 
         self.pool = lambda node: node
         self.unpool = lambda node: node
 
         if direction == 'down' and stride is not None:
-            self.pool = BallPooling(dim, stride, dimensionality)
+            self.pool = BallPooling(dim, stride, dimensionality, fix_eq12)
         elif direction == 'up' and stride is not None:
-            self.unpool = BallUnpooling(dim, stride, dimensionality)
+            self.unpool = BallUnpooling(dim, stride, dimensionality, fix_eq13)
 
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
@@ -305,8 +351,24 @@ class ErwinTransformer(nn.Module):
         mlp_ratio: int = 4,
         dimensionality: int = 3,
         mp_steps: int = 3,
+        fix_eq9: bool = False,
+        fix_eq12: bool = False,
+        fix_eq13: bool = False,
     ):
         super().__init__()
+        
+        # Print configuration information once
+        print("Erwin Transformer Configuration:")
+        print(f"- Rotation Invariance Fixes:")
+        print(f"  * Equation 9 (Positional Encoding): {'✓ Using distances' if fix_eq9 else '✗ Using positions'}")
+        print(f"  * Equation 12 (Ball Pooling): {'✓ Using distances' if fix_eq12 else '✗ Using positions'}")
+        print(f"  * Equation 13 (Ball Unpooling): {'✓ Using distances' if fix_eq13 else '✗ Using positions'}")
+        
+        # Store configuration flags
+        self.fix_eq9 = fix_eq9
+        self.fix_eq12 = fix_eq12
+        self.fix_eq13 = fix_eq13
+        
         assert len(enc_num_heads) == len(enc_depths) == len(ball_sizes)
         assert len(dec_num_heads) == len(dec_depths) == len(strides)
         assert len(strides) == len(ball_sizes) - 1
@@ -334,6 +396,9 @@ class ErwinTransformer(nn.Module):
                     rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
                     dimensionality=dimensionality,
+                    fix_eq9=fix_eq9,
+                    fix_eq12=fix_eq12,
+                    fix_eq13=fix_eq13,
                 )
             )
 
@@ -347,6 +412,9 @@ class ErwinTransformer(nn.Module):
             rotate=rotate > 0,
             mlp_ratio=mlp_ratio,
             dimensionality=dimensionality,
+            fix_eq9=fix_eq9,
+            fix_eq12=fix_eq12,
+            fix_eq13=fix_eq13,
         )
 
         if decode:
@@ -363,6 +431,9 @@ class ErwinTransformer(nn.Module):
                         rotate=rotate > 0,
                         mlp_ratio=mlp_ratio,
                         dimensionality=dimensionality,
+                        fix_eq9=fix_eq9,
+                        fix_eq12=fix_eq12,
+                        fix_eq13=fix_eq13,
                     )
                 )
 

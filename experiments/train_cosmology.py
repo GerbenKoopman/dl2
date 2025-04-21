@@ -1,5 +1,5 @@
 import sys
-sys.path.append("../../")
+sys.path.append(".")
 
 import argparse
 import torch
@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit
-from erwin.models.erwin import ErwinTransformer
-from erwin.experiments.datasets import CosmologyDataset
-from erwin.experiments.wrappers import CosmologyModel
+from training import fit
+from models.erwin import ErwinTransformer
+from datasets.cosmology import CosmologyDataset
+from experiments.wrappers import CosmologyModel
 
 
 def parse_args():
@@ -28,7 +28,7 @@ def parse_args():
                         help="Number of training epochs")
     parser.add_argument("--batch-size", type=int, default=16,
                         help="Batch size for training")
-    parser.add_argument("--use-wandb", action="store_true", default=True,
+    parser.add_argument("--use-wandb", action="store_true", default=False,
                         help="Whether to use Weights & Biases for logging")
     parser.add_argument("--lr", type=float, default=5e-4,
                         help="Learning rate")
@@ -39,6 +39,15 @@ def parse_args():
     parser.add_argument("--test", action="store_true", default=True,
                         help="Whether to run testing")
     parser.add_argument("--seed", type=int, default=0)
+    # Make erwin rotation invariant by replacing positions with distances
+    parser.add_argument("--fix-eq9", action="store_true", default=False,
+                        help="Whether to fix eq9")
+    parser.add_argument("--fix-eq12", action="store_true", default=False,
+                        help="Whether to fix eq12")
+    parser.add_argument("--fix-eq13", action="store_true", default=False,
+                        help="Whether to fix eq13")
+    parser.add_argument("--rotate", type=int, default=1,
+                    help="Enable rotation (1) or disable (0) for cross-ball interactions")
     
     return parser.parse_args()
 
@@ -89,6 +98,12 @@ if __name__ == "__main__":
 
     if args.model == "erwin":
         model_config = erwin_configs[args.size]
+        # Add the rotation parameter to the model config
+        model_config["rotate"] = args.rotate
+        # Add the fix parameters to the model config
+        model_config["fix_eq9"] = args.fix_eq9
+        model_config["fix_eq12"] = args.fix_eq12
+        model_config["fix_eq13"] = args.fix_eq13
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
