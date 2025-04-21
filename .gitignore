@@ -591,3 +591,16 @@ $RECYCLE.BIN/
 
 # Local History for Visual Studio Code
 .history/
+
+# Latex notes
+*.tex
+
+# Wandb folder
+wandb/
+
+# Checkpoints
+checkpoints/
+
+# # Results
+*.csv
+*.png
