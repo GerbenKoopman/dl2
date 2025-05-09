@@ -192,8 +192,11 @@ class BallUnpooling(nn.Module):
     def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        self.proj = nn.Linear(in_dim + stride * dimensionality, stride * out_dim)
-        self.norm = nn.BatchNorm1d(out_dim)
+        self.proj_sc = nn.Linear(in_dim + stride * dimensionality, stride * out_dim)
+        self.proj_mv = EquiLinear(in_dim + stride * dimensionality, stride * out_dim)
+
+        self.norm_sc = nn.BatchNorm1d(out_dim)
+        self.norm_mv = EquiLayerNorm(out_dim)
 
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
@@ -203,10 +206,16 @@ class BallUnpooling(nn.Module):
             )
             rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
 
-        x = torch.cat([node.x, rel_pos], dim=-1)
-        node.children.x = self.norm(
-            node.children.x
-            + rearrange(self.proj(x), "n (m d) -> (n m) d", m=self.stride)
+        sc = torch.cat([node.sc, rel_pos], dim=-1)
+        node.children.sc = self.norm_sc(
+            node.children.sc
+            + rearrange(self.proj_sc(sc), "n (m d) -> (n m) d", m=self.stride)
+        )
+
+        mv = torch.cat([node.mv, embed_point(rel_pos)], dim=-1)
+        node.children.mv = self.norm_mv(
+            node.children.mv
+            + rearrange(self.proj_mv(mv), "n (m d) 16 -> (n m) d 16", m=self.stride)
         )
 
         return node.children
