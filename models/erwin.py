@@ -12,6 +12,9 @@ from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
 
+from gatr.layers import EquiLinear, EquiLayerNorm
+from gatr.interface import embed_point
+
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
     """
@@ -137,12 +140,22 @@ class BallPooling(nn.Module):
     def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        self.proj = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
-        self.norm = nn.BatchNorm1d(out_dim)
+
+        self.proj_sc = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
+        self.proj_mv = EquiLinear(stride * in_dim + stride * dimensionality, out_dim)
+
+        self.norm_sc = nn.BatchNorm1d(out_dim)
+        self.norm_mv = EquiLayerNorm(out_dim)
 
     def forward(self, node: Node) -> Node:
         if self.stride == 1:  # no pooling
-            return Node(x=node.x, pos=node.pos, batch_idx=node.batch_idx, children=node)
+            return Node(
+                sc=node.sc,
+                mv=node.mv,
+                pos=node.pos,
+                batch_idx=node.batch_idx,
+                children=node,
+            )
 
         with torch.no_grad():
             batch_idx = node.batch_idx[:: self.stride]
@@ -150,12 +163,21 @@ class BallPooling(nn.Module):
             pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
             rel_pos = rearrange(pos - centers[:, None], "n s d -> n (s d)")
 
-        x = torch.cat(
-            [rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
+        sc = torch.cat(
+            [rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
         )
-        x = self.norm(self.proj(x))
+        sc = self.norm_sc(self.proj_sc(sc))
 
-        return Node(x=x, pos=centers, batch_idx=batch_idx, children=node)
+        mv = torch.cat(
+            [
+                rearrange(node.mv, "(n s) c 16 -> n (s c) 16", s=self.stride),
+                embed_point(rel_pos),
+            ],
+            dim=1,
+        )
+        mv = self.norm_mv(self.proj_mv(mv))
+
+        return Node(sc=sc, mv=mv, pos=centers, batch_idx=batch_idx, children=node)
 
 
 class BallUnpooling(nn.Module):
