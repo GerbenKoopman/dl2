@@ -231,10 +231,17 @@ class BallMSA(nn.Module):
         self.num_heads = num_heads
         self.ball_size = ball_size
 
-        self.qkv = nn.Linear(dim, 3 * dim)
-        self.proj = nn.Linear(dim, dim)
-        self.pe_proj = nn.Linear(dimensionality, dim)
-        self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
+        self.qkv_sc = nn.Linear(dim, 3 * dim)
+        self.qkv_mv = EquiLinear(dim, 3 * dim)
+
+        self.proj_sc = nn.Linear(dim, dim)
+        self.proj_mv = EquiLinear(dim, dim)
+
+        self.pe_proj_sc = nn.Linear(dimensionality, dim)
+        self.pe_proj_mv = EquiLinear(dimensionality, dim)
+
+        self.sigma_att_sc = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
+        # self.sigma_att_mv = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1))) # TODO
 
     @torch.no_grad()
     def create_attention_mask(self, pos: torch.Tensor):
@@ -249,10 +256,11 @@ class BallMSA(nn.Module):
         pos = pos.view(num_balls, self.ball_size, dim)
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
 
-    def forward(self, x: torch.Tensor, pos: torch.Tensor):
-        x = x + self.pe_proj(self.compute_rel_pos(pos))
-        q, k, v = rearrange(
-            self.qkv(x),
+    def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
+        sc = sc + self.pe_proj_sc(self.compute_rel_pos(pos))
+        mv = mv + self.pe_proj_mv(self.compute_rel_pos(pos))  # TODO
+        q_sc, k_sc, v_sc = rearrange(
+            self.qkv(sc),
             "(n m) (H E K) -> K n H m E",
             H=self.num_heads,
             m=self.ball_size,
@@ -262,6 +270,7 @@ class BallMSA(nn.Module):
             q, k, v, attn_mask=self.create_attention_mask(pos)
         )
         x = rearrange(x, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
+
         return self.proj(x)
 
 
