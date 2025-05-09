@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from balltree import build_balltree_with_rotations
 
 from gatr.layers import EquiLinear, EquiLayerNorm
+from gatr.layers.attention.qkv import QKVModule
 from gatr.interface import embed_point
 
 
@@ -231,17 +232,19 @@ class BallMSA(nn.Module):
         self.num_heads = num_heads
         self.ball_size = ball_size
 
-        self.qkv_sc = nn.Linear(dim, 3 * dim)
-        self.qkv_mv = EquiLinear(dim, 3 * dim)
+        # self.qkv_sc = nn.Linear(dim, 3 * dim)
+        # self.qkv_mv = EquiLinear(dim, 3 * dim)
 
-        self.proj_sc = nn.Linear(dim, dim)
-        self.proj_mv = EquiLinear(dim, dim)
+        # self.proj_sc = nn.Linear(dim, dim)
+        # self.proj_mv = EquiLinear(dim, dim)
 
-        self.pe_proj_sc = nn.Linear(dimensionality, dim)
-        self.pe_proj_mv = EquiLinear(dimensionality, dim)
+        # self.pe_proj_sc = nn.Linear(dimensionality, dim)
+        # self.pe_proj_mv = EquiLinear(dimensionality, dim)
 
-        self.sigma_att_sc = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
+        # self.sigma_att_sc = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
         # self.sigma_att_mv = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1))) # TODO
+
+        self.qkv = QKVModule(config=None)
 
     @torch.no_grad()
     def create_attention_mask(self, pos: torch.Tensor):
@@ -259,17 +262,32 @@ class BallMSA(nn.Module):
     def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
         sc = sc + self.pe_proj_sc(self.compute_rel_pos(pos))
         mv = mv + self.pe_proj_mv(self.compute_rel_pos(pos))  # TODO
+
+        q_mv, k_mv, v_mv, q_sc, k_sc, v_sc = self.qkv(mv, sc)
+
         q_sc, k_sc, v_sc = rearrange(
-            self.qkv(sc),
+            self.qkv_sc(sc),
             "(n m) (H E K) -> K n H m E",
             H=self.num_heads,
             m=self.ball_size,
             K=3,
         )
-        x = F.scaled_dot_product_attention(
-            q, k, v, attn_mask=self.create_attention_mask(pos)
+        sc = F.scaled_dot_product_attention(
+            q_sc, k_sc, v_sc, attn_mask=self.create_attention_mask(pos)
         )
-        x = rearrange(x, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
+        sc = rearrange(sc, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
+
+        q_mv, k_mv, v_mv = rearrange(
+            self.qkv_mv(mv),
+            "(n m) (H E K) -> K n H m E",
+            H=self.num_heads,
+            m=self.ball_size,
+            K=3,
+        )
+        mv = F.scaled_dot_product_attention(
+            q_mv, k_mv, v_mv, attn_mask=self.create_attention_mask(pos)
+        )
+        mv = rearrange(mv, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
 
         return self.proj(x)
 
