@@ -276,14 +276,19 @@ class ErwinTransformerBlock(nn.Module):
     ):
         super().__init__()
         self.ball_size = ball_size
-        self.norm1 = nn.RMSNorm(dim)
-        self.norm2 = nn.RMSNorm(dim)
+
+        self.norm1_sc = nn.RMSNorm(dim)
+        self.norm2_sc = nn.RMSNorm(dim)
+
+        self.norm1_mv = EquiLayerNorm(dim)
+        self.norm2_mv = EquiLayerNorm(dim)
+
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
-        x = x + self.BMSA(self.norm1(x), pos)
-        return x + self.swiglu(self.norm2(x))
+        sc, mv = (sc, mv) + self.BMSA(self.norm1_sc(sc), self.norm1_mv(mv), pos)
+        return (sc, mv) + self.swiglu(self.norm2_sc(sc), self.norm2_mv(mv))
 
 
 class BasicLayer(nn.Module):
