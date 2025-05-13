@@ -12,8 +12,8 @@ from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
 
-from gatr.layers import EquiLinear, EquiLayerNorm
-from gatr.layers.mlp import ScalarGatedNonlinearity
+from gatr.layers import EquiLinear, EquiLayerNorm, GeoMLP
+from gatr.layers.mlp import MLPConfig
 from gatr.interface import embed_point
 
 
@@ -41,23 +41,18 @@ class SwiGLU(nn.Module):
 
     def __init__(self, in_dim: int, dim: int):
         super().__init__()
-        # self.w1_sc = nn.Linear(in_dim, dim)
-        # self.w2_sc = nn.Linear(in_dim, dim)
-        # self.w3_sc = nn.Linear(dim, in_dim)
 
-        # self.w1_mv = EquiLinear(in_dim, dim)
-        # self.w2_mv = EquiLinear(in_dim, dim)
-        # self.w3_mv = EquiLinear(dim, in_dim)
-
-        self.scalar_gated_nonlinearity = ScalarGatedNonlinearity(
-            nonlinearity="gelu", in_dim=in_dim, out_dim=dim
+        config = MLPConfig(
+            mv_channels=[in_dim, dim, in_dim],
+            sc_channels=[in_dim, dim, in_dim],
+            activation="gelu",
         )
 
-    def forward(self, sc: torch.Tensor, mv: torch.Tensor):
-        # sc = self.w3_sc(self.w2_sc(sc) * F.silu(self.w1_sc(sc)))
-        # mv = self.w3_mv(self.w2_mv(mv) * F.silu(self.w1_mv(mv)))
+        self.mv_reference = torch.randn(16)
+        self.nonlinearity = GeoMLP(config)
 
-        mv, sc = self.scalar_gated_nonlinearity(mv, sc)
+    def forward(self, sc: torch.Tensor, mv: torch.Tensor):
+        mv, sc = self.nonlinearity(mv, sc)
         return sc, mv
 
 
