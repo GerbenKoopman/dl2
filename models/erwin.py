@@ -15,6 +15,7 @@ from balltree import build_balltree_with_rotations
 from gatr.layers import EquiLinear, EquiLayerNorm, GeoMLP
 from gatr.layers.mlp import MLPConfig
 from gatr.interface import embed_point
+from gatr.utils.tensors import construct_reference_multivector
 
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
@@ -48,12 +49,12 @@ class SwiGLU(nn.Module):
             activation="gelu",
         )
 
-        self.mv_reference = torch.randn(16)
+        self.reference_mv = construct_reference_multivector("canonical", torch.ones(16))
         self.nonlinearity = GeoMLP(config)
 
     def forward(self, sc: torch.Tensor, mv: torch.Tensor):
-        mv, sc = self.nonlinearity(mv, sc)
-        return sc, mv
+        mv, sc = self.nonlinearity(mv, sc, reference_mv=self.reference_mv)
+        return mv, sc
 
 
 class MPNN(nn.Module):
