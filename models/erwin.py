@@ -231,11 +231,11 @@ class BallMSA(nn.Module):
         self.num_heads = num_heads
         self.ball_size = ball_size
 
-        self.pe_proj_sc = nn.Linear(1, dim)
         self.pe_proj_mv = EquiLinear(1, dim)
+        self.pe_proj_sc = nn.Linear(1, dim)
 
-        self.proj_sc = nn.Linear(dim, dim)
         self.proj_mv = EquiLinear(dim, dim)
+        self.proj_sc = nn.Linear(dim, dim)
 
         config = SelfAttentionConfig(
             multi_query=False,
@@ -263,8 +263,8 @@ class BallMSA(nn.Module):
         return dist.view(-1, 1)
 
     def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
+        mv = mv + self.pe_proj_mv(self.compute_rel_dist(pos))
         sc = sc + self.pe_proj_sc(self.compute_rel_dist(pos))
-        mv = mv + self.pe_proj_mv(self.compute_rel_dist(pos))  # TODO
 
         outputs_mv, outputs_sc = self.attention(self, mv, sc)
 
