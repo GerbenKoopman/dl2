@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from balltree import build_balltree_with_rotations
 
 from gatr.layers import (
-    EquiLinear,
     EquiLayerNorm,
+    EquiLinear,
+    GeoMLP,
     SelfAttention,
     SelfAttentionConfig,
-    GeoMLP,
 )
 from gatr.layers.mlp import MLPConfig
 from gatr.interface import embed_point
