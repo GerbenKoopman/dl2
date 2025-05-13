@@ -12,8 +12,7 @@ from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
 
-from gatr.layers import EquiLinear, EquiLayerNorm
-from gatr.layers.attention.qkv import QKVModule
+from gatr.layers import EquiLinear, EquiLayerNorm, SelfAttention, SelfAttentionConfig
 from gatr.interface import embed_point
 
 
@@ -232,19 +231,21 @@ class BallMSA(nn.Module):
         self.num_heads = num_heads
         self.ball_size = ball_size
 
-        # self.qkv_sc = nn.Linear(dim, 3 * dim)
-        # self.qkv_mv = EquiLinear(dim, 3 * dim)
+        self.pe_proj_sc = nn.Linear(1, dim)
+        self.pe_proj_mv = EquiLinear(1, dim)
 
-        # self.proj_sc = nn.Linear(dim, dim)
-        # self.proj_mv = EquiLinear(dim, dim)
+        self.proj_sc = nn.Linear(dim, dim)
+        self.proj_mv = EquiLinear(dim, dim)
 
-        # self.pe_proj_sc = nn.Linear(dimensionality, dim)
-        # self.pe_proj_mv = EquiLinear(dimensionality, dim)
+        config = SelfAttentionConfig(
+            multi_query=False,
+            in_mv_channels=dim,
+            out_mv_channels=16,
+            in_s_channels=dim,
+            out_s_channels=16,
+        )
 
-        # self.sigma_att_sc = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
-        # self.sigma_att_mv = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1))) # TODO
-
-        self.qkv = QKVModule(config=None)
+        self.attention = SelfAttention(config)
 
     @torch.no_grad()
     def create_attention_mask(self, pos: torch.Tensor):
@@ -253,43 +254,21 @@ class BallMSA(nn.Module):
         return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
 
     @torch.no_grad()
-    def compute_rel_pos(self, pos: torch.Tensor):
-        """Relative position of leafs wrt the center of the ball (eq. 9)."""
+    def compute_rel_dist(self, pos: torch.Tensor):
+        """Relative distance of leafs to the center of the ball (eq. 9)."""
         num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
         pos = pos.view(num_balls, self.ball_size, dim)
-        return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
+        rel = pos - pos.mean(dim=1, keepdim=True)
+        dist = rel.norm(dim=2, keepdim=True)
+        return dist.view(-1, 1)
 
     def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
-        sc = sc + self.pe_proj_sc(self.compute_rel_pos(pos))
-        mv = mv + self.pe_proj_mv(self.compute_rel_pos(pos))  # TODO
+        sc = sc + self.pe_proj_sc(self.compute_rel_dist(pos))
+        mv = mv + self.pe_proj_mv(self.compute_rel_dist(pos))  # TODO
 
-        q_mv, k_mv, v_mv, q_sc, k_sc, v_sc = self.qkv(mv, sc)
+        outputs_mv, outputs_sc = self.attention(self, mv, sc)
 
-        q_sc, k_sc, v_sc = rearrange(
-            self.qkv_sc(sc),
-            "(n m) (H E K) -> K n H m E",
-            H=self.num_heads,
-            m=self.ball_size,
-            K=3,
-        )
-        sc = F.scaled_dot_product_attention(
-            q_sc, k_sc, v_sc, attn_mask=self.create_attention_mask(pos)
-        )
-        sc = rearrange(sc, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
-
-        q_mv, k_mv, v_mv = rearrange(
-            self.qkv_mv(mv),
-            "(n m) (H E K) -> K n H m E",
-            H=self.num_heads,
-            m=self.ball_size,
-            K=3,
-        )
-        mv = F.scaled_dot_product_attention(
-            q_mv, k_mv, v_mv, attn_mask=self.create_attention_mask(pos)
-        )
-        mv = rearrange(mv, "n H m E -> (n m) (H E)", H=self.num_heads, m=self.ball_size)
-
-        return self.proj(x)
+        return self.proj_mv(outputs_mv), self.proj_sc(outputs_sc)
 
 
 class ErwinTransformerBlock(nn.Module):
