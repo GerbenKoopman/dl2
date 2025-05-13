@@ -120,8 +120,8 @@ class ErwinEmbedding(nn.Module):
 class Node:
     """Dataclass to store the hierarchical node information."""
 
-    sc: torch.Tensor
     mv: torch.Tensor
+    sc: torch.Tensor
     pos: torch.Tensor
     batch_idx: torch.Tensor
     tree_idx_rot: torch.Tensor | None = None
@@ -141,17 +141,17 @@ class BallPooling(nn.Module):
         super().__init__()
         self.stride = stride
 
-        self.proj_sc = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
         self.proj_mv = EquiLinear(stride * in_dim + stride * dimensionality, out_dim)
+        self.proj_sc = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
 
-        self.norm_sc = nn.BatchNorm1d(out_dim)
         self.norm_mv = EquiLayerNorm(out_dim)
+        self.norm_sc = nn.BatchNorm1d(out_dim)
 
     def forward(self, node: Node) -> Node:
         if self.stride == 1:  # no pooling
             return Node(
-                sc=node.sc,
                 mv=node.mv,
+                sc=node.sc,
                 pos=node.pos,
                 batch_idx=node.batch_idx,
                 children=node,
@@ -163,11 +163,6 @@ class BallPooling(nn.Module):
             pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
             rel_pos = rearrange(pos - centers[:, None], "n s d -> n (s d)")
 
-        sc = torch.cat(
-            [rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
-        )
-        sc = self.norm_sc(self.proj_sc(sc))
-
         mv = torch.cat(
             [
                 rearrange(node.mv, "(n s) c 16 -> n (s c) 16", s=self.stride),
@@ -177,7 +172,12 @@ class BallPooling(nn.Module):
         )
         mv = self.norm_mv(self.proj_mv(mv))
 
-        return Node(sc=sc, mv=mv, pos=centers, batch_idx=batch_idx, children=node)
+        sc = torch.cat(
+            [rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
+        )
+        sc = self.norm_sc(self.proj_sc(sc))
+
+        return Node(mv=mv, sc=sc, pos=centers, batch_idx=batch_idx, children=node)
 
 
 class BallUnpooling(nn.Module):
@@ -192,11 +192,11 @@ class BallUnpooling(nn.Module):
     def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        self.proj_sc = nn.Linear(in_dim + stride * dimensionality, stride * out_dim)
         self.proj_mv = EquiLinear(in_dim + stride * dimensionality, stride * out_dim)
+        self.proj_sc = nn.Linear(in_dim + stride * dimensionality, stride * out_dim)
 
-        self.norm_sc = nn.BatchNorm1d(out_dim)
         self.norm_mv = EquiLayerNorm(out_dim)
+        self.norm_sc = nn.BatchNorm1d(out_dim)
 
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
@@ -206,16 +206,16 @@ class BallUnpooling(nn.Module):
             )
             rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
 
-        sc = torch.cat([node.sc, rel_pos], dim=-1)
-        node.children.sc = self.norm_sc(
-            node.children.sc
-            + rearrange(self.proj_sc(sc), "n (m d) -> (n m) d", m=self.stride)
-        )
-
         mv = torch.cat([node.mv, embed_point(rel_pos)], dim=-1)
         node.children.mv = self.norm_mv(
             node.children.mv
             + rearrange(self.proj_mv(mv), "n (m d) 16 -> (n m) d 16", m=self.stride)
+        )
+
+        sc = torch.cat([node.sc, rel_pos], dim=-1)
+        node.children.sc = self.norm_sc(
+            node.children.sc
+            + rearrange(self.proj_sc(sc), "n (m d) -> (n m) d", m=self.stride)
         )
 
         return node.children
@@ -277,18 +277,18 @@ class ErwinTransformerBlock(nn.Module):
         super().__init__()
         self.ball_size = ball_size
 
-        self.norm1_sc = nn.RMSNorm(dim)
-        self.norm2_sc = nn.RMSNorm(dim)
-
         self.norm1_mv = EquiLayerNorm(dim)
         self.norm2_mv = EquiLayerNorm(dim)
+
+        self.norm1_sc = nn.RMSNorm(dim)
+        self.norm2_sc = nn.RMSNorm(dim)
 
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
-        sc, mv = (sc, mv) + self.BMSA(self.norm1_sc(sc), self.norm1_mv(mv), pos)
-        return (sc, mv) + self.swiglu(self.norm2_sc(sc), self.norm2_mv(mv))
+        mv, sc = (mv, sc) + self.BMSA(self.norm1_mv(mv), self.norm1_mv(sc), pos)
+        return (mv, sc) + self.swiglu(self.norm2_mv(mv), self.norm2_sc(sc))
 
 
 class BasicLayer(nn.Module):
