@@ -37,11 +37,14 @@ In order to run the code, you will need conda installed. This environment requir
 Just like with the original Erwin code, running the project is done by first downloading the
 ```bash
 # Download the data using wget
-wget https://zenodo.org/api/records/11479419/files-archive -O zenodo_data.zip && unzip zenodo_data.zip -d dataset/cosmolody
+mkdir datasets && cd datasets
+wget https://zenodo.org/api/records/11479419/files-archive -O zenodo_data.zip
+unzip zenodo_data.zip -d cosmolody/
+cd ..
 
 # Run the code on the cosmology dataset
 cd experiments
-python train_cosmology.py --data-path ../dataset/cosmolody
+python train_cosmology.py --data-path ../datasets/cosmolody
 ```
 
 ## Structure of project
