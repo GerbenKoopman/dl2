@@ -1,8 +1,10 @@
 import sys
+
 sys.path.append("../../")
 
 import argparse
 import torch
+
 torch.set_float32_matmul_precision("high")
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -16,34 +18,67 @@ from erwin.experiments.wrappers import CosmologyModel
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="erwin",
-                        help="Model type (mpnn, pointtransformer, erwin)")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="erwin",
+        help="Model type (mpnn, pointtransformer, erwin)",
+    )
     parser.add_argument("--data-path", type=str)
-    parser.add_argument("--size", type=str, default="small",
-                        choices=["small", "medium", "large"],
-                        help="Model size configuration")
-    parser.add_argument("--num-samples", type=int, default=8192,
-                        help="Number of samples for training")
-    parser.add_argument("--num-epochs", type=int, default=3000,
-                        help="Number of training epochs")
-    parser.add_argument("--batch-size", type=int, default=16,
-                        help="Batch size for training")
-    parser.add_argument("--use-wandb", action="store_true", default=True,
-                        help="Whether to use Weights & Biases for logging")
-    parser.add_argument("--lr", type=float, default=5e-4,
-                        help="Learning rate")
-    parser.add_argument("--val-every-iter", type=int, default=500,
-                        help="Validation frequency in iterations")
-    parser.add_argument("--experiment", type=str, default="glx_node",
-                        help="Experiment name")
-    parser.add_argument("--test", action="store_true", default=True,
-                        help="Whether to run testing")
+    parser.add_argument(
+        "--size",
+        type=str,
+        default="small",
+        choices=["smallest, small", "medium", "large"],
+        help="Model size configuration",
+    )
+    parser.add_argument(
+        "--num-samples", type=int, default=8192, help="Number of samples for training"
+    )
+    parser.add_argument(
+        "--num-epochs", type=int, default=3000, help="Number of training epochs"
+    )
+    parser.add_argument(
+        "--batch-size", type=int, default=16, help="Batch size for training"
+    )
+    parser.add_argument(
+        "--use-wandb",
+        action="store_true",
+        default=True,
+        help="Whether to use Weights & Biases for logging",
+    )
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
+    parser.add_argument(
+        "--val-every-iter",
+        type=int,
+        default=500,
+        help="Validation frequency in iterations",
+    )
+    parser.add_argument(
+        "--experiment", type=str, default="glx_node", help="Experiment name"
+    )
+    parser.add_argument(
+        "--test", action="store_true", default=True, help="Whether to run testing"
+    )
     parser.add_argument("--seed", type=int, default=0)
-    
+
     return parser.parse_args()
 
 
 erwin_configs = {
+    "smallest": {
+        "mv_dim_in": 8,
+        "mv_dims": [8, 16],
+        "s_dims": [8, 16],
+        "enc_num_heads": [2, 4],
+        "enc_depths": [2, 2],
+        "dec_num_heads": [2],
+        "dec_depths": [2],
+        "strides": [2],
+        "ball_sizes": [128, 128],
+        "rotate": 0,
+        "mp_steps": 0,
+    },
     "small": {
         "c_in": 32,
         "c_hidden": 32,
@@ -93,24 +128,24 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown model type: {args.model}")
 
     train_dataset = CosmologyDataset(
-        task='node', 
-        split='train', 
-        num_samples=args.num_samples, 
-        tfrecords_path=args.data_path, 
+        task="node",
+        split="train",
+        num_samples=args.num_samples,
+        tfrecords_path=args.data_path,
         knn=10,
     )
     val_dataset = CosmologyDataset(
-        task='node', 
-        split='val', 
-        num_samples=512, 
-        tfrecords_path=args.data_path, 
+        task="node",
+        split="val",
+        num_samples=512,
+        tfrecords_path=args.data_path,
         knn=10,
     )
     test_dataset = CosmologyDataset(
-        task='node', 
-        split='test', 
-        num_samples=512, 
-        tfrecords_path=args.data_path, 
+        task="node",
+        split="test",
+        num_samples=512,
+        tfrecords_path=args.data_path,
         knn=10,
     )
 
@@ -121,7 +156,7 @@ if __name__ == "__main__":
         collate_fn=train_dataset.collate_fn,
         num_workers=16,
     )
-    
+
     valid_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
@@ -129,7 +164,7 @@ if __name__ == "__main__":
         collate_fn=train_dataset.collate_fn,
         num_workers=16,
     )
-    
+
     test_loader = DataLoader(
         test_dataset,
         batch_size=args.batch_size,
@@ -148,4 +183,14 @@ if __name__ == "__main__":
     config = vars(args)
     config.update(model_config)
 
-    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 100, 200)
+    fit(
+        config,
+        model,
+        optimizer,
+        scheduler,
+        train_loader,
+        valid_loader,
+        test_loader,
+        100,
+        200,
+    )
