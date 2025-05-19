@@ -19,20 +19,21 @@ class Embedding(nn.Module):
         super().__init__()
 
     def forward(self, pos):
-        print(pos.shape)
-        masses = None
-        masses = embed_scalar(masses)
-        points = None
-        plane = None
-        plane = embed_oriented_plane(plane, points)
-        points = embed_point(points)
-        velocities = None
-        velocities = embed_translation(velocities)
-        multivector = masses + points + velocities
+        print(pos.shape)  # 80000, 3
+        mv = embed_point(pos)
 
-        multivector = multivector.unsqueeze(2)
+        # masses = None
+        # masses = embed_scalar(masses)
+        # points = None
+        # plane = None
+        # plane = embed_oriented_plane(plane, points)
+        # points = embed_point(points)
+        # velocities = None
+        # velocities = embed_translation(velocities)
+        # multivector = masses + points + velocities
+        # multivector = multivector.unsqueeze(2)
 
-        return multivector
+        return mv.unsqueeze(2)
 
 
 class CosmologyModel(nn.Module):
