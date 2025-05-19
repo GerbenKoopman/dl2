@@ -123,12 +123,19 @@ class ErwinEmbedding(nn.Module):
     def __init__(self, in_dim: int, dim: int, mp_steps: int, dimensionality: int = 3):
         super().__init__()
         self.mp_steps = mp_steps
-        self.embed_fn = nn.Linear(in_dim, dim)
-        self.mpnn = MPNN(dim, mp_steps, dimensionality)
+        self.embed_fn = Equilinear(in_dim, dim)
+        self.mpnn = MPNN(dim, mp_steps, 16)
 
-    def forward(self, x: torch.Tensor, pos: torch.Tensor, edge_index: torch.Tensor):
-        x = self.embed_fn(x)
-        return self.mpnn(x, pos, edge_index) if self.mp_steps > 0 else x
+    def forward(
+        self,
+        mv: torch.Tensor,
+        sc: torch.Tensor,
+        pos: torch.Tensor,
+        edge_index: torch.Tensor,
+    ):
+        mv = self.embed_fn(mv)
+        sc = self.embed_fn(sc)
+        return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else x
 
 
 @dataclass
