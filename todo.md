@@ -9,6 +9,7 @@
         - [x] Representation Multivector
  - [] Check if scalar channels are supposed to be invariant
  - [] Check if linear layers need to discriminate between mv and sc
+ - [] Use full dataset instead of only position and velocity
  - [x] Check if batch norm vs layer norm in BallPooling is right
 
 ### Bugs
