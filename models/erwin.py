@@ -18,8 +18,9 @@ from gatr.layers import (
     GeoMLP,
     SelfAttention,
     SelfAttentionConfig,
+    ScalarGatedNonlinearity,
 )
-from gatr.layers.mlp import MLPConfig
+from gatr.layers.mlp import MLPConfig, ScalarGatedNonlinearity
 from gatr.interface import embed_point
 from gatr.utils.tensors import construct_reference_multivector
 
@@ -130,7 +131,7 @@ class ErwinEmbedding(nn.Module):
     def __init__(self, in_dim: int, dim: int, mp_steps: int, dimensionality: int = 3):
         super().__init__()
         self.mp_steps = mp_steps
-        self.embed_fn = Equilinear(in_dim, dim)
+        self.embed_fn = EquiLinear(in_dim, dim)
         self.mpnn = MPNN(dim, mp_steps, 16)
 
     def forward(
@@ -142,7 +143,7 @@ class ErwinEmbedding(nn.Module):
     ):
         mv = self.embed_fn(mv)
         sc = self.embed_fn(sc)
-        return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else x
+        return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else mv, sc
 
 
 @dataclass
