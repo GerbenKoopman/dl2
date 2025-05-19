@@ -1,13 +1,15 @@
 # Checklist for the project
 ### Implementation
  - [x] Wait for the code of Maksim
+ - [] Ask Maksim about multiple scalar inputs
  - [] Implement equivariant functions
     - [] BallMSA
         - [] Check if projection in forward is needed x2
     - [x] SwigLU
         - [x] Representation Multivector
  - [] Check if scalar channels are supposed to be invariant
- - [] Check if batch norm vs layer norm in BallPooling is right
+ - [] Check if linear layers need to discriminate between mv and sc
+ - [x] Check if batch norm vs layer norm in BallPooling is right
 
 ### Bugs
  - [] Run the damn thing
@@ -16,12 +18,8 @@
  - [] Abstract
  - [] Introduction
  - [] Short related work section
- - [] Reproducibility of the current work
-     - [] Description of the method and Experiments
-     - [] Discussion and analysis
- - [] Extension
-     - [] Description of the method and Experiments
-     - [] Discussion and analysis
+ - [] Methodology
+ - [] Results
  - [] Conclusion
  - [] Brief explanation of project in [README.md](README.md):
      - [x] Package requirements
