@@ -2,6 +2,8 @@ __pycache__/
 balltree/
 cosmology_data/
 datasets/
+wandb/
 
 *.zip
 *.pyc
+*.log
