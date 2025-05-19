@@ -127,21 +127,21 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown model type: {args.model}")
 
     train_dataset = CosmologyDataset(
-        task="geo_erwin",
+        task="node",
         split="train",
         num_samples=args.num_samples,
         tfrecords_path=args.data_path,
         knn=10,
     )
     val_dataset = CosmologyDataset(
-        task="geo_erwin",
+        task="node",
         split="val",
         num_samples=512,
         tfrecords_path=args.data_path,
         knn=10,
     )
     test_dataset = CosmologyDataset(
-        task="geo_erwin",
+        task="node",
         split="test",
         num_samples=512,
         tfrecords_path=args.data_path,
