@@ -44,7 +44,7 @@ cd ..
 
 # Run the code on the cosmology dataset
 cd experiments
-python train_cosmology.py --data-path ../datasets/cosmolody
+python train_cosmology.py --data-path ../datasets/cosmology
 ```
 
 ## Structure of project
