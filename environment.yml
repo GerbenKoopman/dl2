@@ -27,3 +27,4 @@ dependencies:
     - torch-scatter
     - spconv-cu120
     - torch-cluster -f https://data.pyg.org/whl/torch-2.5.0+cu120.html
+    - xformers==0.0.28.post1
