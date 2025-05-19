@@ -336,7 +336,7 @@ class BasicLayer(nn.Module):
             "down", "up", None
         ],  # down: encoder, up: decoder, None: bottleneck
         depth: int,
-        stride: int,
+        stride: int | None,
         in_dim: int,
         out_dim: int,
         num_heads: int,
@@ -513,10 +513,10 @@ class ErwinTransformer(nn.Module):
         node_features: torch.Tensor,
         node_positions: torch.Tensor,
         batch_idx: torch.Tensor,
-        edge_index: torch.Tensor = None,
-        tree_idx: torch.Tensor = None,
-        tree_mask: torch.Tensor = None,
-        radius: float = None,
+        edge_index: torch.Tensor | None = None,
+        tree_idx: torch.Tensor | None = None,
+        tree_mask: torch.Tensor | None = None,
+        radius: float | None = None,
         **kwargs,
     ):
         with torch.no_grad():

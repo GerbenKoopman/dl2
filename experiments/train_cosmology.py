@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("../models")
+sys.path.append("../../")
 
 import argparse
 import torch
@@ -29,7 +29,7 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest, small", "medium", "large"],
+        choices=["smallest", "small", "medium", "large"],
         help="Model size configuration",
     )
     parser.add_argument(

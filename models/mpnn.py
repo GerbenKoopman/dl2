@@ -27,7 +27,8 @@ class MLP(nn.Module):
             # layer = nn.Linear(feature_sizes[i], feature_sizes[i + 1])
             layer = EquiLinear(feature_sizes[i], feature_sizes[i + 1])
             nn.init.xavier_uniform_(layer.weight)
-            nn.init.zeros_(layer.bias)
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)
             self.layers.append(layer)
 
     def forward(
