@@ -52,7 +52,7 @@ class SwiGLU(nn.Module):
 
         config = MLPConfig(
             mv_channels=[in_dim, dim, in_dim],
-            sc_channels=[in_dim, dim, in_dim],
+            s_channels=[in_dim, dim, in_dim],
             activation="gelu",
         )
 
@@ -419,8 +419,8 @@ class ErwinTransformer(nn.Module):
 
     def __init__(
         self,
-        c_in: int,
-        c_hidden: List,
+        c_dim_in: int,
+        c_hidden: list[int],
         ball_sizes: List,
         enc_num_heads: List,
         enc_depths: List,
@@ -443,7 +443,7 @@ class ErwinTransformer(nn.Module):
         self.ball_sizes = ball_sizes
         self.strides = strides
 
-        self.embed = ErwinEmbedding(c_in, c_hidden[0], mp_steps, 16)
+        self.embed = ErwinEmbedding(c_dim_in, c_hidden[0], mp_steps, 16)
 
         num_layers = len(enc_depths) - 1  # last one is a bottleneck
 
@@ -495,7 +495,7 @@ class ErwinTransformer(nn.Module):
                     )
                 )
 
-        self.in_dim = c_in
+        self.in_dim = c_dim_in
         self.out_dim = c_hidden[0]
         self.apply(self._init_weights)
 
@@ -510,7 +510,8 @@ class ErwinTransformer(nn.Module):
 
     def forward(
         self,
-        node_features: torch.Tensor,
+        node_features_mv: torch.Tensor,
+        node_features_sc: torch.Tensor,
         node_positions: torch.Tensor,
         batch_idx: torch.Tensor,
         edge_index: torch.Tensor | None = None,
@@ -537,8 +538,9 @@ class ErwinTransformer(nn.Module):
                     node_positions, radius, batch=batch_idx, loop=True
                 )
 
-        mv = self.embed(node_features, node_positions, edge_index)
-        sc = self.embed(node_features, node_positions, edge_index)
+        mv, sc = self.embed(
+            node_features_mv, node_features_sc, node_positions, edge_index
+        )
 
         node = Node(
             mv=mv[tree_idx],

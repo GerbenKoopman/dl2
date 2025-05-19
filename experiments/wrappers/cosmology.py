@@ -1,14 +1,15 @@
 import torch
 import torch.nn as nn
 
+from gatr.interface import embed_point
+
 
 class Embedding(nn.Module):
     def __init__(self, out_dim):
         super().__init__()
-        self.pos_embedding = nn.Linear(3, out_dim)
 
     def forward(self, pos):
-        return self.pos_embedding(pos)
+        return embed_point(pos)
 
 
 class CosmologyModel(nn.Module):
