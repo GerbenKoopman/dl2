@@ -420,7 +420,7 @@ class ErwinTransformer(nn.Module):
 
     def __init__(
         self,
-        c_dim_in: int,
+        c_in: int,
         c_hidden: list[int],
         ball_sizes: List,
         enc_num_heads: List,
@@ -444,7 +444,7 @@ class ErwinTransformer(nn.Module):
         self.ball_sizes = ball_sizes
         self.strides = strides
 
-        self.embed = ErwinEmbedding(c_dim_in, c_hidden[0], mp_steps, 16)
+        self.embed = ErwinEmbedding(c_in, c_hidden[0], mp_steps, 16)
 
         num_layers = len(enc_depths) - 1  # last one is a bottleneck
 
@@ -496,7 +496,7 @@ class ErwinTransformer(nn.Module):
                     )
                 )
 
-        self.in_dim = c_dim_in
+        self.in_dim = c_in
         self.out_dim = c_hidden[0]
         self.apply(self._init_weights)
 
