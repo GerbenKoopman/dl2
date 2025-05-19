@@ -364,11 +364,15 @@ class BasicLayer(nn.Module):
 
         for rotate, blk in zip(self.rotate, self.blocks):
             if rotate:
-                node.x = blk(node.x[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
+                node.mv = blk(node.mv[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
+                    tree_idx_rot_inv
+                ]
+                node.sc = blk(node.sc[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
                     tree_idx_rot_inv
                 ]
             else:
-                node.x = blk(node.x, node.pos)
+                node.mv = blk(node.mv, node.pos)
+                node.sc = blk(node.sc, node.pos)
         return self.pool(node)
 
 
@@ -422,7 +426,7 @@ class ErwinTransformer(nn.Module):
         self.ball_sizes = ball_sizes
         self.strides = strides
 
-        self.embed = ErwinEmbedding(c_in, c_hidden[0], mp_steps, dimensionality)
+        self.embed = ErwinEmbedding(c_in, c_hidden[0], mp_steps, 16)
 
         num_layers = len(enc_depths) - 1  # last one is a bottleneck
 
@@ -439,7 +443,7 @@ class ErwinTransformer(nn.Module):
                     ball_size=ball_sizes[i],
                     rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
-                    dimensionality=dimensionality,
+                    dimensionality=16,
                 )
             )
 
@@ -453,7 +457,7 @@ class ErwinTransformer(nn.Module):
             ball_size=ball_sizes[-1],
             rotate=rotate > 0,
             mlp_ratio=mlp_ratio,
-            dimensionality=dimensionality,
+            dimensionality=16,
         )
 
         if decode:
@@ -470,7 +474,7 @@ class ErwinTransformer(nn.Module):
                         ball_size=ball_sizes[i],
                         rotate=rotate > 0,
                         mlp_ratio=mlp_ratio,
-                        dimensionality=dimensionality,
+                        dimensionality=16,
                     )
                 )
 
@@ -516,10 +520,12 @@ class ErwinTransformer(nn.Module):
                     node_positions, radius, batch=batch_idx, loop=True
                 )
 
-        x = self.embed(node_features, node_positions, edge_index)
+        mv = self.embed(node_features, node_positions, edge_index)
+        sc = self.embed(node_features, node_positions, edge_index)
 
         node = Node(
-            x=x[tree_idx],
+            mv=mv[tree_idx],
+            sc=sc[tree_idx],
             pos=node_positions[tree_idx],
             batch_idx=batch_idx[tree_idx],
             tree_idx_rot=None,  # will be populated in the encoder
@@ -535,6 +541,9 @@ class ErwinTransformer(nn.Module):
         if self.decode:
             for layer in self.decoder:
                 node = layer(node)
-            return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]
+            return (
+                node.mv[tree_mask][torch.argsort(tree_idx[tree_mask])],
+                node.sc[tree_mask][torch.argsort(tree_idx[tree_mask])],
+            )
 
-        return node.x, node.batch_idx
+        return node.mv, node.sc, node.batch_idx
