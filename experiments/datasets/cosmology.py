@@ -154,9 +154,15 @@ class CosmologyDataset(Dataset):
 
         if task == "graph":
             features = ["x", "y", "z"]
+            params = ["Omega_m", "sigma_8"]
 
         elif task == "node":
             features = ["x", "y", "z", "v_x", "v_y", "v_z"]
+            params = ["Omega_m", "sigma_8"]
+
+        elif task == "geo_erwin":
+            features = ["x", "y", "z", "v_x", "v_y", "v_z", "J_x", "J_y", "J_z", "M200c"]
+            params = ["Omega_m", "Omega_b", "h", "n_s", "sigma_8"]
 
         dataset, _ = get_halo_dataset(
             batch_size=1,
@@ -165,7 +171,7 @@ class CosmologyDataset(Dataset):
             standardize=True,
             return_mean_std=False,
             features=features,
-            params=["Omega_m", "sigma_8"],
+            params=params,
             include_tpcf=False,
             tfrecords_path=tfrecords_path,
         )
