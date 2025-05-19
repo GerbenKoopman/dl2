@@ -1,22 +1,42 @@
 import torch
 import torch.nn as nn
 
-from gatr.interface import embed_point
+from gatr.interface import (
+    embed_point,
+    embed_scalar,
+    embed_translation,
+    embed_oriented_plane,
+)
+
+
+# masses = inputs[:, :, [0]]  # (batchsize, objects, 1)
+# points = inputs[:, :, 1:4]  # (batchsize, objects, 3)
+# velocities = inputs[:, :, 4:7]  # (batchsize, objects, 3)
 
 
 class Embedding(nn.Module):
-    def __init__(self, out_dim):
+    def __init__(self):
         super().__init__()
 
     def forward(self, pos):
-        return embed_point(pos)
+        masses = None
+        masses = embed_scalar(masses)
+        points = None
+        points = embed_point(points)
+        velocities = None
+        velocities = embed_translation(velocities)
+        multivector = masses + points + velocities
+
+        multivector = multivector.unsqueeze(2)
+
+        return multivector
 
 
 class CosmologyModel(nn.Module):
     def __init__(self, main_model):
         super().__init__()
         self.main_model = main_model
-        self.embedding_model = Embedding(main_model.in_dim)
+        self.embedding_model = Embedding()
         self.pred_head = nn.Sequential(
             nn.Linear(main_model.out_dim, main_model.out_dim),
             nn.GELU(),
