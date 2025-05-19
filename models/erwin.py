@@ -200,11 +200,11 @@ class BallPooling(nn.Module):
             ],
             dim=1,
         )
-        mv = self.norm_mv(self.proj_mv(mv))
-
         sc = torch.cat(
             [rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
         )
+
+        mv = self.norm_mv(self.proj_mv(mv, sc))
         sc = self.norm_sc(self.proj_sc(sc))
 
         return Node(mv=mv, sc=sc, pos=centers, batch_idx=batch_idx, children=node)
@@ -237,12 +237,13 @@ class BallUnpooling(nn.Module):
             rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
 
         mv = torch.cat([node.mv, embed_point(rel_pos)], dim=-1)
+        sc = torch.cat([node.sc, rel_pos], dim=-1)
+
         node.children.mv = self.norm_mv(
             node.children.mv
-            + rearrange(self.proj_mv(mv), "n (m d) 16 -> (n m) d 16", m=self.stride)
+            + rearrange(self.proj_mv(mv, sc), "n (m d) 16 -> (n m) d 16", m=self.stride)
         )
 
-        sc = torch.cat([node.sc, rel_pos], dim=-1)
         node.children.sc = self.norm_sc(
             node.children.sc
             + rearrange(self.proj_sc(sc), "n (m d) -> (n m) d", m=self.stride)
