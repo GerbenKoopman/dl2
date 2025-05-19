@@ -3,3 +3,4 @@ balltree/
 cosmology_data/
 
 *.zip
+*.pyc
