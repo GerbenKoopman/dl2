@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("../../")
+sys.path.append("../models")
 
 import argparse
 import torch

@@ -264,6 +264,8 @@ class BallMSA(nn.Module):
         self.pe_proj_mv = EquiLinear(1, dim)
         self.pe_proj_sc = nn.Linear(1, dim)
 
+        self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
+
         self.proj_mv = EquiLinear(dim, dim)
         self.proj_sc = nn.Linear(dim, dim)
 

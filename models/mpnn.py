@@ -4,15 +4,8 @@ from torch_scatter import scatter
 import torch.nn.functional as F
 
 from gatr.layers import (
-    EquiLayerNorm,
     EquiLinear,
-    GeoMLP,
-    SelfAttention,
-    SelfAttentionConfig,
 )
-from gatr.layers.mlp import MLPConfig
-from gatr.interface import embed_point
-from gatr.utils.tensors import construct_reference_multivector
 
 
 class MLP(nn.Module):
@@ -37,7 +30,9 @@ class MLP(nn.Module):
             nn.init.zeros_(layer.bias)
             self.layers.append(layer)
 
-    def forward(self, mv: torch.Tensor, sc: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, mv: torch.Tensor, sc: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         for i, layer in enumerate(self.layers):
             mv = layer(mv)
             sc = layer(sc)
