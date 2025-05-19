@@ -19,9 +19,12 @@ class Embedding(nn.Module):
         super().__init__()
 
     def forward(self, pos):
+        print(pos.shape)
         masses = None
         masses = embed_scalar(masses)
         points = None
+        plane = None
+        plane = embed_oriented_plane(plane, points)
         points = embed_point(points)
         velocities = None
         velocities = embed_translation(velocities)
