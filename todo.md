@@ -25,5 +25,6 @@
  - [] Conclusion
  - [] Brief explanation of project in [README.md](README.md):
      - [x] Package requirements
-     - [] How to rerun your experiments
+     - [x] How to rerun your experiments
      - [x] Some more technical notes deemed needed to understand the code base of the project, but no need for extensive expiation (probably meant explanation) there.
+     - [] Check with others if readme adheres to guidelines
