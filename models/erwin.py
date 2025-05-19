@@ -77,9 +77,9 @@ class MPNN(nn.Module):
         self.message_fns = nn.ModuleList(
             [
                 nn.Sequential(
-                    nn.Linear(2 * dim + dimensionality, dim),
-                    nn.GELU(),
-                    nn.LayerNorm(dim),
+                    EquiLinear(2 * dim + 16, dim),
+                    ScalarGatedNonlinearity("gelu"),
+                    EquiLayerNorm(dim),
                 )
                 for _ in range(mp_steps)
             ]
@@ -87,7 +87,7 @@ class MPNN(nn.Module):
 
         self.update_fns = nn.ModuleList(
             [
-                nn.Sequential(nn.Linear(2 * dim, dim), nn.LayerNorm(dim))
+                nn.Sequential(EquiLinear(2 * dim, dim), EquiLayerNorm(dim))
                 for _ in range(mp_steps)
             ]
         )
@@ -110,11 +110,18 @@ class MPNN(nn.Module):
     def compute_edge_attr(self, pos, edge_index):
         return pos[edge_index[0]] - pos[edge_index[1]]
 
-    def forward(self, x: torch.Tensor, pos: torch.Tensor, edge_index: torch.Tensor):
+    def forward(
+        self,
+        mv: torch.Tensor,
+        sc: torch.Tensor,
+        pos: torch.Tensor,
+        edge_index: torch.Tensor,
+    ):
         edge_attr = self.compute_edge_attr(pos, edge_index)
         for message_fn, update_fn in zip(self.message_fns, self.update_fns):
-            x = self.layer(message_fn, update_fn, x, edge_attr, edge_index)
-        return x
+            mv = self.layer(message_fn, update_fn, mv, edge_attr, edge_index)
+            sc = self.layer(message_fn, update_fn, sc, edge_attr, edge_index)
+        return mv, sc
 
 
 class ErwinEmbedding(nn.Module):
