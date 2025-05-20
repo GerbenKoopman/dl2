@@ -1,6 +1,8 @@
 # Checklist for the project
 ### Implementation
  - [x] Wait for the code of Maksim
+ - [] Check Build_BallTree with rotations?
+ - [] What if no MPNN (Maybe ablation)?
  - [] Ask Maksim about multiple scalar inputs
  - [] Implement equivariant functions
     - [] BallMSA

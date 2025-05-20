@@ -45,7 +45,7 @@ def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
 
 
 ## MPNN separtes mv and sc and uses EquiLinear but EquiLinear should mix mv and sc
-## Should use GeoMLP rather than MLP? 
+## Should use GeoMLP rather than MLP?
 class MPNN(nn.Module):
     """
     Message Passing Neural Network (see Gilmer et al., 2017).
@@ -455,7 +455,7 @@ class ErwinTransformer(nn.Module):
                     batch_idx,
                     self.strides,
                     self.ball_sizes,
-                    self.rotate=0,
+                    self.rotate,
                 )
             if edge_index is None and self.embed.mp_steps:
                 assert (

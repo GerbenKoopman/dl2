@@ -6,7 +6,6 @@ channels:
   - nvidia
 dependencies:
   - python=3.11
-  - pytorch=2.5.0
   - pip
   - wheel
   - addict
@@ -22,9 +21,9 @@ dependencies:
   - timm
   - wandb
   - pip:
-    - gatr @ git+https://github.com/Qualcomm-AI-research/geometric-algebra-transformer.git
-    - --find-links https://data.pyg.org/whl/torch-2.5.0+cu120.html
+    - torch==2.4.1 -f https://data.pyg.org/whl/torch-2.4.1+cu120.html
+    - gatr @ git+https://github.com/Qualcomm-AI-research/geometric-algebra-transformer.git --find-links https://data.pyg.org/whl/torch-2.4.1+cu120.html
     - torch-scatter
     - spconv-cu120
-    - torch-cluster -f https://data.pyg.org/whl/torch-2.5.0+cu120.html
+    - torch-cluster -f https://data.pyg.org/whl/torch-2.4.1+cu120.html
     - xformers==0.0.28.post1
