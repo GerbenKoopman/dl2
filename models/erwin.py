@@ -141,8 +141,7 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
-        mv = self.embed_fn(mv)
-        sc = self.embed_fn(sc)
+        mv, sc = self.embed_fn(mv, sc)
         return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else mv, sc
 
 
