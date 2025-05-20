@@ -36,8 +36,9 @@ class CosmologyModel(nn.Module):
         )
 
     def forward(self, node_positions, **kwargs):
-        node_features = self.embedding_model(node_positions)
-        return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
+        node_features_mv = self.embedding_model(node_positions)
+        node_features_sc = torch.zeros_like(node_features_mv)
+        return self.pred_head(self.main_model(node_features_mv, node_features_sc, node_positions, **kwargs))
 
     def step(self, batch, prefix="train"):
         pred = self(batch["pos"], **batch)
