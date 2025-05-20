@@ -44,33 +44,14 @@ def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
     return result / count.unsqueeze(1).clamp(min=1)
 
 
-class SwiGLU(nn.Module):
-    """W_3 SiLU(W_1 x) ⊗ W_2 x"""
-
-    def __init__(self, in_dim: int, dim: int):
-        super().__init__()
-
-        config = MLPConfig(
-            mv_channels=[in_dim, dim, in_dim],
-            s_channels=[in_dim, dim, in_dim],
-            activation="gelu",
-        )
-
-        self.reference_mv = construct_reference_multivector("canonical", torch.ones(16))
-        self.nonlinearity = GeoMLP(config)
-
-    def forward(self, sc: torch.Tensor, mv: torch.Tensor):
-        mv, sc = self.nonlinearity(mv, sc, reference_mv=self.reference_mv)
-        return mv, sc
-
-
+## MPNN separtes mv and sc and uses EquiLinear but EquiLinear should mix mv and sc
+## Should use GeoMLP rather than MLP? 
 class MPNN(nn.Module):
     """
     Message Passing Neural Network (see Gilmer et al., 2017).
         m_ij = MLP([h_i, h_j, pos_i - pos_j])       message
         m_i = mean(m_ij)                            aggregate
         h_i' = MLP([h_i, m_i])                      update
-
     """
 
     def __init__(self, dim: int, mp_steps: int, dimensionality: int = 3):
@@ -131,7 +112,7 @@ class ErwinEmbedding(nn.Module):
     def __init__(self, in_dim: int, dim: int, mp_steps: int, dimensionality: int = 3):
         super().__init__()
         self.mp_steps = mp_steps
-        self.embed_fn = EquiLinear(in_dim, dim)
+        self.embed_fn = EquiLinear(in_dim, dim)  # mv,sc -> mv,sc
         self.mpnn = MPNN(dim, mp_steps, 16)
 
     def forward(
@@ -141,6 +122,7 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
+        # TODO: Should mv,sc be separated here?
         mv = self.embed_fn(mv)
         sc = self.embed_fn(sc)
         return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else mv, sc
@@ -174,8 +156,8 @@ class BallPooling(nn.Module):
         self.proj_mv = EquiLinear(stride * in_dim + stride * dimensionality, out_dim)
         self.proj_sc = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
 
-        self.norm_mv = EquiLayerNorm(out_dim)
-        self.norm_sc = nn.BatchNorm1d(out_dim)
+        self.norm_mv = EquiLayerNorm(out_dim)   # batch norm on mv
+        self.norm_sc = nn.BatchNorm1d(out_dim)   # batch norm on sc
 
     def forward(self, node: Node) -> Node:
         if self.stride == 1:  # no pooling
@@ -193,6 +175,9 @@ class BallPooling(nn.Module):
             pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
             rel_pos = rearrange(pos - centers[:, None], "n s d -> n (s d)")
 
+        # Should mv,sc be separated?
+
+        ## pos is encdoded mv but centers is not so need to concatenate rel_pos
         mv = torch.cat(
             [
                 rearrange(node.mv, "(n s) c 16 -> n (s c) 16", s=self.stride),
@@ -205,7 +190,7 @@ class BallPooling(nn.Module):
         )
 
         mv = self.norm_mv(self.proj_mv(mv, sc))
-        sc = self.norm_sc(self.proj_sc(sc))
+        sc = self.norm_sc(self.proj_sc(sc))    # should be removed??
 
         return Node(mv=mv, sc=sc, pos=centers, batch_idx=batch_idx, children=node)
 
@@ -252,58 +237,6 @@ class BallUnpooling(nn.Module):
         return node.children
 
 
-class BallMSA(nn.Module):
-    """Ball Multi-Head Self-Attention (BMSA) module (eq. 8)."""
-
-    def __init__(
-        self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3
-    ):
-        super().__init__()
-        self.num_heads = num_heads
-        self.ball_size = ball_size
-
-        self.pe_proj_mv = EquiLinear(1, dim)
-        self.pe_proj_sc = nn.Linear(1, dim)
-
-        self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
-
-        self.proj_mv = EquiLinear(dim, dim)
-        self.proj_sc = nn.Linear(dim, dim)
-
-        config = SelfAttentionConfig(
-            multi_query=False,
-            in_mv_channels=dim,
-            out_mv_channels=16,
-            in_s_channels=dim,
-            out_s_channels=16,
-        )
-
-        self.attention = SelfAttention(config)
-
-    @torch.no_grad()
-    def create_attention_mask(self, pos: torch.Tensor):
-        """Distance-based attention bias (eq. 10)."""
-        pos = rearrange(pos, "(n m) d -> n m d", m=self.ball_size)
-        return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
-
-    @torch.no_grad()
-    def compute_rel_dist(self, pos: torch.Tensor):
-        """Relative distance of leafs to the center of the ball (eq. 9)."""
-        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
-        pos = pos.view(num_balls, self.ball_size, dim)
-        rel = pos - pos.mean(dim=1, keepdim=True)
-        dist = rel.norm(dim=2, keepdim=True)
-        return dist.view(-1, 1)
-
-    def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
-        mv = mv + self.pe_proj_mv(self.compute_rel_dist(pos))
-        sc = sc + self.pe_proj_sc(self.compute_rel_dist(pos))
-
-        outputs_mv, outputs_sc = self.attention(self, mv, sc)
-
-        return self.proj_mv(outputs_mv), self.proj_sc(outputs_sc)
-
-
 class ErwinTransformerBlock(nn.Module):
     def __init__(
         self,
@@ -316,18 +249,32 @@ class ErwinTransformerBlock(nn.Module):
         super().__init__()
         self.ball_size = ball_size
 
-        self.norm1_mv = EquiLayerNorm(dim)
-        self.norm2_mv = EquiLayerNorm(dim)
+        self.norm1 = EquiLayerNorm(dim)   # mv,sc -> mv,sc
+        self.norm2 = EquiLayerNorm(dim)   # mv,sc -> mv,sc
 
-        self.norm1_sc = nn.RMSNorm(dim)
-        self.norm2_sc = nn.RMSNorm(dim)
+        # As it should, we don't pass pos_encoding
+        att_config = SelfAttentionConfig(
+            multi_query=False,
+            in_mv_channels=dim,
+            out_mv_channels=16,
+            in_s_channels=dim,
+            out_s_channels=16,
+        )
 
-        self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
-        self.swiglu = SwiGLU(dim, dim * mlp_ratio)
+        self.attention = SelfAttention(att_config)
 
-    def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
-        mv, sc = (mv, sc) + self.BMSA(self.norm1_mv(mv), self.norm1_mv(sc), pos)
-        return (mv, sc) + self.swiglu(self.norm2_mv(mv), self.norm2_sc(sc))
+        mlp_config = MLPConfig(
+            mv_channels=[in_dim, dim, in_dim],
+            s_channels=[in_dim, dim, in_dim],
+            activation="gelu",
+        )
+
+        self.reference_mv = construct_reference_multivector("canonical", torch.ones(16))   # Because canonical, this is (0,0,...,0,1,1)
+        self.geo_mlp = GeoMLP(mlp_config)
+
+    def forward(self, mv: torch.Tensor, sc: torch.Tensor):  # mv,sc -> mv,sc
+        mv, sc = (mv, sc) + self.attention(self.norm1(mv,sc))
+        return (mv, sc) + self.geo_mlp(self.norm2(mv,sc), reference_mv=self.reference_mv)
 
 
 class BasicLayer(nn.Module):
@@ -343,7 +290,6 @@ class BasicLayer(nn.Module):
         num_heads: int,
         ball_size: int,
         mlp_ratio: int,
-        rotate: bool,
         dimensionality: int = 3,
     ):
         super().__init__()
@@ -357,7 +303,9 @@ class BasicLayer(nn.Module):
                 for _ in range(depth)
             ]
         )
-        self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
+
+        ## We don't use cross-ball attention anymore, so we deleted rotate as an option
+        # self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth   # Rotate?? Breaks equivariance right?
 
         self.pool = lambda node: node
         self.unpool = lambda node: node
@@ -370,27 +318,9 @@ class BasicLayer(nn.Module):
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
 
-        if (
-            len(self.rotate) > 1 and self.rotate[1]
-        ):  # if rotation is enabled, it will be used in the second block
-            assert (
-                node.tree_idx_rot is not None
-            ), "tree_idx_rot must be provided for rotation"
-            tree_idx_rot_inv = torch.argsort(
-                node.tree_idx_rot
-            )  # map from rotated to original
+        for blk in self.blocks:
+            node.mv,node.sc = blk(node.mv, node.sc)
 
-        for rotate, blk in zip(self.rotate, self.blocks):
-            if rotate:
-                node.mv = blk(node.mv[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
-                    tree_idx_rot_inv
-                ]
-                node.sc = blk(node.sc[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
-                    tree_idx_rot_inv
-                ]
-            else:
-                node.mv = blk(node.mv, node.pos)
-                node.sc = blk(node.sc, node.pos)
         return self.pool(node)
 
 
@@ -407,7 +337,6 @@ class ErwinTransformer(nn.Module):
         dec_num_heads (List): list of number of heads for each decoder layer.
         dec_depths (List): list of number of ErwinTransformerBlock layers for each decoder layer.
         strides (List): list of strides for each encoder layer (reverse for decoder).
-        rotate (int): angle of rotation for cross-ball interactions; if 0, no rotation.
         decode (bool): whether to decode or not. If not, returns latent representation at the coarsest level.
         mlp_ratio (int): ratio of SWIGLU's hidden dim to a layer's hidden dim.
         dimensionality (int): dimensionality of the input data.
@@ -439,7 +368,6 @@ class ErwinTransformer(nn.Module):
         assert len(dec_num_heads) == len(dec_depths) == len(strides)
         assert len(strides) == len(ball_sizes) - 1
 
-        self.rotate = rotate
         self.decode = decode
         self.ball_sizes = ball_sizes
         self.strides = strides
@@ -459,7 +387,6 @@ class ErwinTransformer(nn.Module):
                     out_dim=c_hidden[i + 1],
                     num_heads=enc_num_heads[i],
                     ball_size=ball_sizes[i],
-                    rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
                     dimensionality=16,
                 )
@@ -473,7 +400,6 @@ class ErwinTransformer(nn.Module):
             out_dim=c_hidden[-1],
             num_heads=enc_num_heads[-1],
             ball_size=ball_sizes[-1],
-            rotate=rotate > 0,
             mlp_ratio=mlp_ratio,
             dimensionality=16,
         )
@@ -490,7 +416,6 @@ class ErwinTransformer(nn.Module):
                         out_dim=c_hidden[i],
                         num_heads=dec_num_heads[i],
                         ball_size=ball_sizes[i],
-                        rotate=rotate > 0,
                         mlp_ratio=mlp_ratio,
                         dimensionality=16,
                     )
@@ -523,13 +448,14 @@ class ErwinTransformer(nn.Module):
     ):
         with torch.no_grad():
             # if not given, build the ball tree and radius graph
+            ## TODO: Should we use build_balltree_with_rotations or no rotations???
             if tree_idx is None and tree_mask is None:
                 tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(
                     node_positions,
                     batch_idx,
                     self.strides,
                     self.ball_sizes,
-                    self.rotate,
+                    self.rotate=0,
                 )
             if edge_index is None and self.embed.mp_steps:
                 assert (
@@ -543,6 +469,7 @@ class ErwinTransformer(nn.Module):
             node_features_mv, node_features_sc, node_positions, edge_index
         )
 
+        # Should mv,sc be separated?
         node = Node(
             mv=mv[tree_idx],
             sc=sc[tree_idx],
