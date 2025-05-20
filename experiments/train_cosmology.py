@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit
+from erwin.training import fit, to_cuda
 from erwin.models.erwin import ErwinTransformer
 from erwin.experiments.datasets import CosmologyDataset
 from erwin.experiments.wrappers import CosmologyModel
@@ -67,7 +67,7 @@ def parse_args():
 
 erwin_configs = {
     "smallest": {
-        "c_dim_in": 16,
+        "c_in": 16,
         "c_hidden": [16, 16],
         "enc_num_heads": [2, 4],
         "enc_depths": [2, 2],
@@ -176,7 +176,8 @@ if __name__ == "__main__":
     )
 
     dynamic_model = model_cls[args.model](**model_config)
-    model = CosmologyModel(dynamic_model).cuda()
+    model = (CosmologyModel(dynamic_model))
+    model = to_cuda(model)
     # model = torch.compile(model)
 
     optimizer = AdamW(model.parameters(), lr=args.lr)

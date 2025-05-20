@@ -183,3 +183,11 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             for k in loss_keys:
                 print(f"Test {k}: {test_stats[k]:.4f}")
     return model
+
+
+def to_cuda(something):
+    """Tries to move something to GPU, if available. Falls back to CPU if not."""
+    if torch.cuda.is_available():
+        return something.cuda()
+    else:
+        return something.cpu()

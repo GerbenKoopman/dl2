@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit
+from erwin.training import fit, to_cuda
 from erwin.models.erwin import ErwinTransformer
 from erwin.experiments.datasets import MDDataset
 from erwin.experiments.wrappers import MDModel
@@ -16,7 +16,7 @@ from erwin.experiments.wrappers import MDModel
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="erwin", 
+    parser.add_argument("--model", type=str, default="erwin",
                         help="Model type (mpnn, pointtransformer, pointnetpp, erwin)")
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--size", type=str, default="small",
@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument("--test", type=int, default=1,
                         help="Whether to run testing")
     parser.add_argument("--seed", type=int, default=0)
-    
+
     return parser.parse_args()
 
 
@@ -118,7 +118,7 @@ if __name__ == "__main__":
         collate_fn=train_dataset.collate_fn,
         num_workers=16,
     )
-    
+
     valid_loader = DataLoader(
         valid_dataset,
         batch_size=args.batch_size,
@@ -126,7 +126,7 @@ if __name__ == "__main__":
         collate_fn=train_dataset.collate_fn,
         num_workers=16,
     )
-    
+
     test_loader = DataLoader(
         test_dataset,
         batch_size=args.batch_size,
@@ -139,7 +139,8 @@ if __name__ == "__main__":
         model_config = erwin_configs[args.size]
 
     dynamics_model = model_cls[args.model](**model_config)
-    model = MDModel(seq_len=train_dataset.seq_len, dynamics_model=dynamics_model).cuda()
+    model = MDModel(seq_len=train_dataset.seq_len, dynamics_model=dynamics_model)
+    model = to_cuda(model)
 
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=1e-7)

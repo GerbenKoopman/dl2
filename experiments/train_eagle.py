@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit, load_checkpoint
+from erwin.training import fit, to_cuda, load_checkpoint
 from erwin.models.erwin import ErwinTransformer
 from erwin.experiments.datasets import EagleDataset
 from erwin.experiments.wrappers import EagleModel
@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="erwin",
                         help="Model type (mpnn, mace, pointtransformer, pointnetpp, erwin)")
-    parser.add_argument("--data-path", type=str)    
+    parser.add_argument("--data-path", type=str)
     parser.add_argument("--size", type=str, default="small",
                         choices=["small", "medium", "large"],
                         help="Model size (tiny, small, base)")
@@ -41,7 +41,7 @@ def parse_args():
                         help="Whether to run testing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use_pe", type=int, default=0)
-    
+
     return parser.parse_args()
 
 
@@ -107,7 +107,7 @@ if __name__ == "__main__":
         pin_memory=False,
         collate_fn=train_dataset.collate_fn,
     )
-    
+
     valid_loader = DataLoader(
         valid_dataset,
         batch_size=args.batch_size,
@@ -116,7 +116,7 @@ if __name__ == "__main__":
         pin_memory=True,
         collate_fn=valid_dataset.collate_fn,
     )
-    
+
     test_loader = DataLoader(
         test_dataset,
         batch_size=1,
@@ -130,7 +130,8 @@ if __name__ == "__main__":
         model_config = erwin_configs[args.size]
 
     dynamic_model = model_cls[args.model](**model_config)
-    model = EagleModel(dynamic_model, train_dataset.denormalize, use_pe=args.use_pe).cuda()
+    model = EagleModel(dynamic_model, train_dataset.denormalize, use_pe=args.use_pe)
+    model = to_cuda(model)
 
     optimizer = AdamW(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.num_epochs, eta_min=1e-7)
@@ -151,7 +152,7 @@ if __name__ == "__main__":
             error_pressure = torch.zeros(test_window_length - 1)
 
             for batch in test_loader:
-                batch = {k: v.cuda() for k, v in batch.items()}
+                batch = {k: to_cuda(v) for k, v in batch.items()}
                 rmse_velocity, rmse_pressure = model.evaluation_step(batch)
                 error_velocity = error_velocity + rmse_velocity
                 error_pressure = error_pressure + rmse_pressure
