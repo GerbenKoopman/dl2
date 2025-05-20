@@ -1,0 +1,19 @@
+#!/bin/bash
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus=1
+#SBATCH --partition=gpu_a100
+#SBATCH --time=03:00:00
+#SBATCH --output=logs/run_%A.out
+
+source activate erwin || conda activate erwin
+
+# check if the file exists
+target=$1
+if [ ! -f "$target" ]; then
+    echo "File $target does not exist."
+    exit 1
+fi
+
+echo "Running $@"
+python $@

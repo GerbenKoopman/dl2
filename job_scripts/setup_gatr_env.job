@@ -1,0 +1,22 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_mig
+#SBATCH --gpus=1
+#SBATCH --job-name=tuning_u
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=23:59:00
+#SBATCH --output=logs/setup_%A.out
+
+module purge
+module load 2023
+module load Anaconda3/2023.07-2
+
+
+cd $HOME/projects/dl2/job_scripts
+
+conda env create -n gatr2 -f gatr.yml
+conda activate gatr2 || source activate gatr2
+FORCE_CUDA=1 pip install torch==2.2.1 torch_scatter torch_sparse torch_cluster torch_spline_conv torch-ema torch_geometric>=2.0.9
+pip install -r gatr_requirements.txt
+python3 -m pip install --no-cache-dir ../GATr/gatr && rm -rf ../GATr/gatr

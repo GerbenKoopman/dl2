@@ -1,0 +1,28 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_mig
+#SBATCH --gpus=1
+#SBATCH --job-name=gatr_nbody
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=6:59:00
+#SBATCH --output=logs/gatr_nbody_%A.out
+
+module purge
+module load 2023
+module load Anaconda3/2023.07-2
+
+cd $HOME/projects/dl2/GATr/
+
+# Run the container with singularity
+singularity shell --nv gatr.sif
+
+# Make sure we are in the right directory
+cd $HOME/projects/dl2/GATr/
+
+# Set a base directory
+BASEDIR=$HOME/projects/dl2/GATr/tmp/gatr-experiments
+
+# Execute commands within the container using singularity exec instead of shell
+singularity exec --nv gatr.sif python scripts/generate_nbody_dataset.py base_dir="${BASEDIR}" seed=42
+singularity exec --nv gatr.sif python scripts/nbody_experiment.py base_dir="${BASEDIR}" seed=42 model=gatr_nbody data.subsample=0.01 training.steps=5000 run_name=gatr
