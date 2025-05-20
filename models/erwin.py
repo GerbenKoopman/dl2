@@ -118,6 +118,7 @@ class MPNN(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
+        raise NotImplementedError("EquiLinear __init() for scalars requires EquiLinear(d_mv_in, d_mv_out, d_s_in, d_s_out), but is not yet implemented as such")
         edge_attr = self.compute_edge_attr(pos, edge_index)
         for message_fn, update_fn in zip(self.message_fns, self.update_fns):
             mv = self.layer(message_fn, update_fn, mv, edge_attr, edge_index)
@@ -131,7 +132,8 @@ class ErwinEmbedding(nn.Module):
     def __init__(self, in_dim: int, dim: int, mp_steps: int, dimensionality: int = 3):
         super().__init__()
         self.mp_steps = mp_steps
-        self.embed_fn = EquiLinear(in_dim, dim)
+        print(f"ErwinEmbedding: {in_dim=}, {dim=}, {mp_steps=}")
+        self.embed_fn = EquiLinear(in_dim, dim, in_s_channels=in_dim, out_s_channels=dim)
         self.mpnn = MPNN(dim, mp_steps, 16)
 
     def forward(
@@ -141,7 +143,9 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
+        print(mv.shape, sc.shape)
         mv, sc = self.embed_fn(mv, sc)
+        print(mv.shape, sc.shape)
         return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else mv, sc
 
 
@@ -542,6 +546,7 @@ class ErwinTransformer(nn.Module):
             node_features_mv, node_features_sc, node_positions, edge_index
         )
 
+        print(mv.shape, sc.shape)
         node = Node(
             mv=mv[tree_idx],
             sc=sc[tree_idx],
