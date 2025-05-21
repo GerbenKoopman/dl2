@@ -372,34 +372,28 @@ class ErwinTransformerBlock(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Store original for residual connection
-        mv_residual1 = mv
-        sc_residual1 = sc
+        mv_residual, sc_residual = mv, sc
 
         # First normalization (handles both mv and sc)
-        normed_mv1, normed_sc1 = self.norm1(mv, sc)
+        mv, sc = self.norm1(mv, sc)
 
         # BallMSA.forward is (self, sc, mv, pos)
-        bmsa_out_mv, bmsa_out_sc = self.BMSA(normed_mv1, normed_sc1, pos)
+        mv, sc = self.BMSA(sc, mv, pos)
 
         # First residual connection
-        mv_after_bmsa = mv_residual1 + bmsa_out_mv
-        sc_after_bmsa = sc_residual1 + bmsa_out_sc
+        mv, sc = mv + mv_residual, sc + sc_residual
 
         # Store for second residual connection
-        mv_residual2 = mv_after_bmsa
-        sc_residual2 = sc_after_bmsa
+        mv_residual, sc_residual = mv, sc
 
         # Second normalization (handles both mv and sc)
-        normed_mv2, normed_sc2 = self.norm2(mv_after_bmsa, sc_after_bmsa)
+        mv, sc = self.norm2(mv, sc)
 
         # SwiGLU.forward is (self, sc, mv)
-        swiglu_out_mv, swiglu_out_sc = self.swiglu(normed_mv2, normed_sc2)
+        mv, sc = self.swiglu(mv, sc)
 
         # Second residual connection
-        mv_final = mv_residual2 + swiglu_out_mv
-        sc_final = sc_residual2 + swiglu_out_sc
-
-        return mv_final, sc_final
+        return mv + mv_residual, sc + sc_residual
 
 
 class BasicLayer(nn.Module):
