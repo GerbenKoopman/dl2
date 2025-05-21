@@ -227,7 +227,8 @@ class BallPooling(nn.Module):
         sc = torch.cat([sc, rel_distances.reshape(centers.shape[0], -1)], dim=-1)
 
         # Apply a single EquiLinear projection and normalization
-        mv, sc = self.norm(self.projection(mv, sc))
+        mv, sc = self.projection(mv, sc)
+        mv, sc = self.norm(mv, sc)
 
         return Node(
             mv=mv,
@@ -340,10 +341,10 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
-        mv, sc = self.attention(mv, sc)
+        mv, sc = self.attention(multivectors=mv, scalars=sc)
 
         # Apply the single EquiLinear output projection
-        mv, sc = self.output_projection(mv, sc)
+        mv, sc = self.output_projection(mv, scalars=sc)
 
         return mv, sc
 
