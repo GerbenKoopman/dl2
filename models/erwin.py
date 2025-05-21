@@ -331,7 +331,7 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
-        mv, sc = self.attention(multivectors=mv, scalars=sc)
+        mv, sc = self.attention(multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos))
 
         # Apply the single EquiLinear output projection
         return self.projection(mv, sc)
