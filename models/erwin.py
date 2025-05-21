@@ -427,7 +427,14 @@ class BasicLayer(nn.Module):
 
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
+        for blk in self.blocks:
+            # Process the node through the block
+            mv, sc = blk(node.mv, node.sc, node.pos)
+            node.mv = mv
+            node.sc = sc
 
+        return self.pool(node)
+        """
         # Simplified rotation check for clarity
         tree_idx_rot_inv = None
         if any(self.rotate):  # If any block in this layer might use rotation
@@ -468,6 +475,7 @@ class BasicLayer(nn.Module):
                 node.mv = processed_mv
                 node.sc = processed_sc
         return self.pool(node)
+        """
 
 
 class ErwinTransformer(nn.Module):
@@ -600,12 +608,9 @@ class ErwinTransformer(nn.Module):
         with torch.no_grad():
             # if not given, build the ball tree and radius graph
             if tree_idx is None and tree_mask is None:
-                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(
+                tree_idx, tree_mask = build_balltree(
                     node_positions,
                     batch_idx,
-                    self.strides,
-                    self.ball_sizes,
-                    self.rotate,
                 )
             if edge_index is None and self.embed.mp_steps:
                 assert (
@@ -628,10 +633,8 @@ class ErwinTransformer(nn.Module):
         )
 
         for layer in self.encoder:
-            node.tree_idx_rot = tree_idx_rot.pop(0)
             node = layer(node)
 
-        node.tree_idx_rot = tree_idx_rot.pop(0)
         node = self.bottleneck(node)
 
         if self.decode:
