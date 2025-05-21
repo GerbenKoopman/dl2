@@ -7,3 +7,5 @@ wandb/
 *.zip
 *.pyc
 *.log
+
+*.pt
