@@ -10,7 +10,7 @@ from einops import rearrange, reduce
 from typing import Literal, List
 from dataclasses import dataclass
 
-from balltree import build_balltree_with_rotations
+from balltree import build_balltree
 
 from gatr.layers import (
     EquiLayerNorm,
@@ -61,8 +61,7 @@ class SwiGLU(nn.Module):
         self.nonlinearity = GeoMLP(config)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor):
-        ref_mv_device = self.reference_mv.to(mv.device)
-        mv, sc = self.nonlinearity(mv, sc, reference_mv=ref_mv_device)
+        mv, sc = self.nonlinearity(mv, sc, reference_mv=self.reference_mv.to(mv.device))
         return mv, sc
 
 
@@ -152,7 +151,6 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
-
         mv, sc = self.embed_fn(mv, sc)
         return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else (mv, sc)
 
@@ -205,23 +203,21 @@ class BallPooling(nn.Module):
                 children=node,
             )
 
-        stride = self.stride
-
         with torch.no_grad():
             # Get batch indices from the first node in each group
-            batch_idx = node.batch_idx[::stride]
+            batch_idx = node.batch_idx[::self.stride]
 
             # Calculate centers as mean of positions in each group
-            centers = reduce(node.pos, "(n s) d -> n d", "mean", s=stride)
+            centers = reduce(node.pos, "(n s) d -> n d", "mean", s=self.stride)
 
             # Calculate relative positions
-            pos = rearrange(node.pos, "(n s) d -> n s d", s=stride)
+            pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
             rel_pos = pos - centers[:, None]
             rel_distances = torch.norm(rel_pos, dim=-1)
 
         # Reshape multivectors and scalars
-        mv = rearrange(node.mv, "(n s) c d -> n (s c) d", s=stride)
-        sc = rearrange(node.sc, "(n s) c -> n (s c)", s=stride)
+        mv = rearrange(node.mv, "(n s) c d -> n (s c) d", s=self.stride)
+        sc = rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride)
 
         # Add distance information to scalar features
         sc = torch.cat([sc, rel_distances.reshape(centers.shape[0], -1)], dim=-1)
@@ -267,10 +263,7 @@ class BallUnpooling(nn.Module):
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
             # Calculate relative positions of children to parent node
-            rel_pos = (
-                rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride)
-                - node.pos[:, None]
-            )
+            rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
             rel_distances = torch.norm(rel_pos, dim=-1)  # [n, stride]
 
         # Combine scalar features with distances
@@ -288,10 +281,7 @@ class BallUnpooling(nn.Module):
         node.children.sc = node.children.sc + sc
 
         # Apply normalization
-        node.children.mv, node.children.sc = self.norm(
-            node.children.mv, node.children.sc
-        )
-
+        node.children.mv, node.children.sc = self.norm(node.children.mv, node.children.sc)
         return node.children
 
 
@@ -317,7 +307,7 @@ class BallMSA(nn.Module):
         )
         self.attention = SelfAttention(attention_config)
 
-        self.output_projection = EquiLinear(
+        self.projection = EquiLinear(
             in_mv_channels=dim,
             out_mv_channels=dim,
             in_s_channels=dim,
@@ -344,9 +334,7 @@ class BallMSA(nn.Module):
         mv, sc = self.attention(multivectors=mv, scalars=sc)
 
         # Apply the single EquiLinear output projection
-        mv, sc = self.output_projection(mv, scalars=sc)
-
-        return mv, sc
+        return self.projection(mv, sc)
 
 
 class ErwinTransformerBlock(nn.Module):
@@ -419,9 +407,7 @@ class BasicLayer(nn.Module):
         self.unpool = lambda node: node
 
         if direction == "down" and stride is not None:
-            self.pool = BallPooling(
-                hidden_dim, out_dim, stride
-            )  # TODO: hidden_dimxout_dim or hidden_dimxhidden_dim?
+            self.pool = BallPooling(hidden_dim, out_dim, stride)
         elif direction == "up" and stride is not None:
             self.unpool = BallUnpooling(in_dim, hidden_dim, stride, dimensionality)
 
