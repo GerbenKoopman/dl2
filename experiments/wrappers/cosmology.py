@@ -34,9 +34,11 @@ class CosmologyModel(nn.Module):
     def forward(self, node_positions, **kwargs):
         node_features_mv = self.embedding_model(node_positions)  # Shape [bs*nodes, 16]
 
-        # Create scalar features with 16 channels as all zeros: WHY ALL ZEROS? => maybe worth to try all ones etc.
+        c_in = self.main_model.in_dim
+
+        # Create scalar features with c_in channels as all zeros: WHY ALL ZEROS? => maybe worth to try all ones etc.
         node_features_sc = torch.zeros(
-            node_features_mv.shape[0], 16, device=node_features_mv.device
+            node_features_mv.shape[0], c_in, device=node_features_mv.device
         )
 
         # Run the main model
