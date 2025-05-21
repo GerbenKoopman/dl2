@@ -67,8 +67,8 @@ def parse_args():
 
 erwin_configs = {
     "smallest": {
-        "c_in": 16,
-        "c_hidden": [16, 16],
+        "c_in": 8,
+        "c_hidden": [8, 16],
         "enc_num_heads": [2, 4],
         "enc_depths": [2, 2],
         "dec_num_heads": [2],
