@@ -56,11 +56,13 @@ class SwiGLU(nn.Module):
             activation="gelu",
         )
 
+        # reference_mv is on CPU first, later we need to move to gpu
         self.reference_mv = construct_reference_multivector("canonical", torch.ones(16))
         self.nonlinearity = GeoMLP(config)
 
     def forward(self, sc: torch.Tensor, mv: torch.Tensor):
-        mv, sc = self.nonlinearity(mv, sc, reference_mv=self.reference_mv)
+        ref_mv_device = self.reference_mv.to(mv.device)
+        mv, sc = self.nonlinearity(mv, sc, reference_mv=ref_mv_device)
         return mv, sc
 
 
@@ -132,8 +134,8 @@ class ErwinEmbedding(nn.Module):
     def __init__(self, in_dim: int, dim: int, mp_steps: int, dimensionality: int = 3):
         super().__init__()
         self.mp_steps = mp_steps
-        print(f"ErwinEmbedding: {in_dim=}, {dim=}, {mp_steps=}")
-        self.embed_fn = EquiLinear(in_dim, dim, in_s_channels=in_dim, out_s_channels=dim)
+        # in_mv is 1 channel (from embed_point). in_s is in_dim (e.g., 16) channels.
+        self.embed_fn = EquiLinear(in_mv_channels=1, out_mv_channels=dim, in_s_channels=in_dim, out_s_channels=dim)
         self.mpnn = MPNN(dim, mp_steps, 16)
 
     def forward(
@@ -143,9 +145,8 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
-        print(mv.shape, sc.shape)
+
         mv, sc = self.embed_fn(mv, sc)
-        print(mv.shape, sc.shape)
         return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else mv, sc
 
 
@@ -163,23 +164,28 @@ class Node:
 
 class BallPooling(nn.Module):
     """
-    Pooling of leaf nodes in a ball (eq. 12):
+    Pooling of leaf nodes in a ball:
         1. select balls of size 'stride'.
         2. concatenate leaf nodes inside each ball along with their relative positions to the ball center.
-        3. apply linear projection and batch normalization.
+        3. apply equilinear projection and normalization.
         4. the output is the center of each ball endowed with the pooled features.
     """
 
-    def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
+    def __init__(self, in_dim: int, out_dim: int, stride: int = 2, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-
-        self.proj_mv = EquiLinear(stride * in_dim + stride * dimensionality, out_dim)
-        self.proj_sc = nn.Linear(stride * in_dim + stride * dimensionality, out_dim)
-
-        self.norm_mv = EquiLayerNorm(out_dim)
-        self.norm_sc = nn.BatchNorm1d(out_dim)
-
+        
+        # Single EquiLinear for both multivectors and scalars
+        self.projection = EquiLinear(
+            in_mv_channels=in_dim * stride, 
+            out_mv_channels=out_dim,
+            in_s_channels=in_dim * stride + stride,
+            out_s_channels=out_dim
+        )
+        
+        # Normalization layer
+        self.norm = EquiLayerNorm()
+        
     def forward(self, node: Node) -> Node:
         if self.stride == 1:  # no pooling
             return Node(
@@ -190,67 +196,92 @@ class BallPooling(nn.Module):
                 children=node,
             )
 
+        stride = self.stride
+        
         with torch.no_grad():
-            batch_idx = node.batch_idx[:: self.stride]
-            centers = reduce(node.pos, "(n s) d -> n d", "mean", s=self.stride)
-            pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
-            rel_pos = rearrange(pos - centers[:, None], "n s d -> n (s d)")
-
-        mv = torch.cat(
-            [
-                rearrange(node.mv, "(n s) c 16 -> n (s c) 16", s=self.stride),
-                embed_point(rel_pos),
-            ],
-            dim=1,
+            # Get batch indices from the first node in each group
+            batch_idx = node.batch_idx[::stride]
+            
+            # Calculate centers as mean of positions in each group
+            centers = reduce(node.pos, "(n s) d -> n d", "mean", s=stride)
+            
+            # Calculate relative positions
+            pos = rearrange(node.pos, "(n s) d -> n s d", s=stride)
+            rel_pos = pos - centers[:, None]
+            rel_distances = torch.norm(rel_pos, dim=-1)
+            
+        # Reshape multivectors and scalars
+        mv_channels_combined = rearrange(node.mv, "(n s) c d -> n (s c) d", s=stride)
+        sc_channels_combined = rearrange(node.sc, "(n s) c -> n (s c)", s=stride)
+    
+        # Add distance information to scalar features
+        sc_with_distances = torch.cat([sc_channels_combined, rel_distances.reshape(centers.shape[0], -1)], dim=-1)
+        
+        # Process both multivectors and scalars with a single EquiLinear call
+        projected_mv, projected_sc = self.projection(mv_channels_combined, sc_with_distances)
+        
+        # Apply equivariant normalization
+        normed_mv, normed_sc = self.norm(projected_mv, projected_sc)
+        
+        return Node(
+            mv=normed_mv, 
+            sc=normed_sc, 
+            pos=centers, 
+            batch_idx=batch_idx,
+            # tree_idx_rot=None,
+            children=node
         )
-        sc = torch.cat(
-            [rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride), rel_pos], dim=1
-        )
-
-        mv = self.norm_mv(self.proj_mv(mv, sc))
-        sc = self.norm_sc(self.proj_sc(sc))
-
-        return Node(mv=mv, sc=sc, pos=centers, batch_idx=batch_idx, children=node)
 
 
 class BallUnpooling(nn.Module):
     """
-    Ball unpooling (refinement; eq. 13):
-        1. compute relative positions of children (from before pooling) to the center of the ball.
-        2. concatenate the pooled features with the relative positions.
-        3. apply linear projection and self-connection followed by batch normalization.
-        4. the output is a refined tree with the same number of nodes as before pooling.
+    Ball unpooling (refinement) with equivariance:
+        1. compute relative positions of children to the center of the ball
+        2. use distances for scalar features to maintain rotation invariance
+        3. apply equilinear projection and normalization
+        4. output is a refined tree with the same number of nodes as before pooling
     """
 
     def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
         super().__init__()
         self.stride = stride
-        self.proj_mv = EquiLinear(in_dim + stride * dimensionality, stride * out_dim)
-        self.proj_sc = nn.Linear(in_dim + stride * dimensionality, stride * out_dim)
-
-        self.norm_mv = EquiLayerNorm(out_dim)
-        self.norm_sc = nn.BatchNorm1d(out_dim)
+        
+        # Single EquiLinear for both multivectors and scalars
+        self.projection = EquiLinear(
+            in_mv_channels=in_dim,
+            out_mv_channels=stride * out_dim,
+            in_s_channels=in_dim + stride,  # Add space for distances
+            out_s_channels=stride * out_dim
+        )
+        
+        # Normalization layer
+        self.norm = EquiLayerNorm()
 
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
+            # Calculate relative positions of children to parent node
             rel_pos = (
                 rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride)
                 - node.pos[:, None]
             )
-            rel_pos = rearrange(rel_pos, "n m d -> n (m d)")
-
-        mv = torch.cat([node.mv, embed_point(rel_pos)], dim=-1)
-        sc = torch.cat([node.sc, rel_pos], dim=-1)
-
-        node.children.mv = self.norm_mv(
-            node.children.mv
-            + rearrange(self.proj_mv(mv, sc), "n (m d) 16 -> (n m) d 16", m=self.stride)
-        )
-
-        node.children.sc = self.norm_sc(
-            node.children.sc
-            + rearrange(self.proj_sc(sc), "n (m d) -> (n m) d", m=self.stride)
-        )
+            rel_distances = torch.norm(rel_pos, dim=-1)  # [n, stride]
+        
+        # Combine scalar features with distances
+        sc_with_distances = torch.cat([node.sc, rel_distances], dim=-1)
+        
+        # Process multivectors and scalars through the EquiLinear
+        projected_mv, projected_sc = self.projection(node.mv, sc_with_distances)
+        
+        # Apply normalization
+        normed_mv, normed_sc = self.norm(projected_mv, projected_sc)
+        
+        # Reshape the projections to match the children's dimensions
+        children_mv_update = rearrange(normed_mv, "n (m d) e -> (n m) d e", m=self.stride)
+        children_sc_update = rearrange(normed_sc, "n (m d) -> (n m) d", m=self.stride)
+        
+        # Apply residual connection to children's features
+        node.children.mv = node.children.mv + children_mv_update
+        node.children.sc = node.children.sc + children_sc_update
 
         return node.children
 
@@ -265,23 +296,24 @@ class BallMSA(nn.Module):
         self.num_heads = num_heads
         self.ball_size = ball_size
 
-        self.pe_proj_mv = EquiLinear(1, dim)
-        self.pe_proj_sc = nn.Linear(1, dim)
+        self.sigma_att = nn.Parameter(torch.tensor(1.0)) # TODO: skip this?
 
-        self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
-
-        self.proj_mv = EquiLinear(dim, dim)
-        self.proj_sc = nn.Linear(dim, dim)
-
-        config = SelfAttentionConfig(
+        # Config for the SelfAttention layer
+        attention_config = SelfAttentionConfig(
             multi_query=False,
             in_mv_channels=dim,
-            out_mv_channels=16,
+            out_mv_channels=dim, 
             in_s_channels=dim,
-            out_s_channels=16,
+            out_s_channels=dim,
         )
+        self.attention = SelfAttention(attention_config)
 
-        self.attention = SelfAttention(config)
+        self.output_projection = EquiLinear(
+            in_mv_channels=dim,
+            out_mv_channels=dim,
+            in_s_channels=dim,
+            out_s_channels=dim
+        )
 
     @torch.no_grad()
     def create_attention_mask(self, pos: torch.Tensor):
@@ -299,12 +331,12 @@ class BallMSA(nn.Module):
         return dist.view(-1, 1)
 
     def forward(self, sc: torch.Tensor, mv: torch.Tensor, pos: torch.Tensor):
-        mv = mv + self.pe_proj_mv(self.compute_rel_dist(pos))
-        sc = sc + self.pe_proj_sc(self.compute_rel_dist(pos))
+        outputs_mv, outputs_sc = self.attention(multivectors=mv, scalars=sc)
 
-        outputs_mv, outputs_sc = self.attention(self, mv, sc)
+        # Apply the single EquiLinear output projection
+        projected_mv, projected_sc = self.output_projection(outputs_mv, scalars=outputs_sc)
 
-        return self.proj_mv(outputs_mv), self.proj_sc(outputs_sc)
+        return projected_mv, projected_sc
 
 
 class ErwinTransformerBlock(nn.Module):
@@ -319,18 +351,43 @@ class ErwinTransformerBlock(nn.Module):
         super().__init__()
         self.ball_size = ball_size
 
-        self.norm1_mv = EquiLayerNorm(dim)
-        self.norm2_mv = EquiLayerNorm(dim)
-
-        self.norm1_sc = nn.RMSNorm(dim)
-        self.norm2_sc = nn.RMSNorm(dim)
+        # EquiLayerNorm will handle both mv and sc # TODO: check the mv_channel_dim=-2 thing
+        self.norm1 = EquiLayerNorm(mv_channel_dim=-2) # mv shape (..., channels, 16) and sc shape (..., channels)
+        self.norm2 = EquiLayerNorm(mv_channel_dim=-2)
 
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
-        mv, sc = (mv, sc) + self.BMSA(self.norm1_mv(mv), self.norm1_mv(sc), pos)
-        return (mv, sc) + self.swiglu(self.norm2_mv(mv), self.norm2_sc(sc))
+        # Store original for residual connection
+        mv_residual1 = mv
+        sc_residual1 = sc
+
+        # First normalization (handles both mv and sc)
+        normed_mv1, normed_sc1 = self.norm1(mv, sc)
+        
+        # BallMSA.forward is (self, sc, mv, pos)
+        bmsa_out_mv, bmsa_out_sc = self.BMSA(normed_sc1, normed_mv1, pos) 
+        
+        # First residual connection
+        mv_after_bmsa = mv_residual1 + bmsa_out_mv
+        sc_after_bmsa = sc_residual1 + bmsa_out_sc
+        
+        # Store for second residual connection
+        mv_residual2 = mv_after_bmsa
+        sc_residual2 = sc_after_bmsa
+
+        # Second normalization (handles both mv and sc)
+        normed_mv2, normed_sc2 = self.norm2(mv_after_bmsa, sc_after_bmsa)
+        
+        # SwiGLU.forward is (self, sc, mv)
+        swiglu_out_mv, swiglu_out_sc = self.swiglu(normed_sc2, normed_mv2)
+        
+        # Second residual connection
+        mv_final = mv_residual2 + swiglu_out_mv
+        sc_final = sc_residual2 + swiglu_out_sc
+        
+        return mv_final, sc_final
 
 
 class BasicLayer(nn.Module):
@@ -366,34 +423,48 @@ class BasicLayer(nn.Module):
         self.unpool = lambda node: node
 
         if direction == "down" and stride is not None:
-            self.pool = BallPooling(hidden_dim, out_dim, stride, dimensionality)
+            self.pool = BallPooling(hidden_dim, out_dim, stride) # TODO: hidden_dimxout_dim or hidden_dimxhidden_dim?
         elif direction == "up" and stride is not None:
             self.unpool = BallUnpooling(in_dim, hidden_dim, stride, dimensionality)
 
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
 
-        if (
-            len(self.rotate) > 1 and self.rotate[1]
-        ):  # if rotation is enabled, it will be used in the second block
-            assert (
-                node.tree_idx_rot is not None
-            ), "tree_idx_rot must be provided for rotation"
-            tree_idx_rot_inv = torch.argsort(
-                node.tree_idx_rot
-            )  # map from rotated to original
+        # Simplified rotation check for clarity
+        tree_idx_rot_inv = None
+        if any(self.rotate): # If any block in this layer might use rotation
+            if node.tree_idx_rot is not None:
+                 tree_idx_rot_inv = torch.argsort(node.tree_idx_rot)
+            # else: # Optional: Add an assertion or warning if rotation is expected but tree_idx_rot is None
+            #     if any(r for r in self.rotate): # Only if some blocks actually rotate
+            #         assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation if any block uses it"
 
-        for rotate, blk in zip(self.rotate, self.blocks):
-            if rotate:
-                node.mv = blk(node.mv[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
-                    tree_idx_rot_inv
-                ]
-                node.sc = blk(node.sc[node.tree_idx_rot], node.pos[node.tree_idx_rot])[
-                    tree_idx_rot_inv
-                ]
+
+        for i, blk in enumerate(self.blocks): 
+            current_block_rotates = self.rotate[i] 
+            # NOTE: !!! we haven't tested the if=true branch here, which would be the rotation case !!!
+            if current_block_rotates:
+                assert (
+                    node.tree_idx_rot is not None
+                ), "tree_idx_rot must be provided for rotation for this block"
+                # Ensure tree_idx_rot_inv is computed if not already
+                if tree_idx_rot_inv is None : # Should have been computed if any(self.rotate) and node.tree_idx_rot was not None
+                     assert node.tree_idx_rot is not None, "Cannot rotate without tree_idx_rot"
+                     tree_idx_rot_inv = torch.argsort(node.tree_idx_rot)
+
+
+                mv_rotated = node.mv[node.tree_idx_rot]
+                sc_rotated = node.sc[node.tree_idx_rot]
+                pos_rotated = node.pos[node.tree_idx_rot]
+                
+                processed_mv_rotated, processed_sc_rotated = blk(mv_rotated, sc_rotated, pos_rotated)
+                
+                node.mv = processed_mv_rotated[tree_idx_rot_inv]
+                node.sc = processed_sc_rotated[tree_idx_rot_inv]
             else:
-                node.mv = blk(node.mv, node.pos)
-                node.sc = blk(node.sc, node.pos)
+                processed_mv, processed_sc = blk(node.mv, node.sc, node.pos)
+                node.mv = processed_mv
+                node.sc = processed_sc
         return self.pool(node)
 
 
@@ -546,7 +617,6 @@ class ErwinTransformer(nn.Module):
             node_features_mv, node_features_sc, node_positions, edge_index
         )
 
-        print(mv.shape, sc.shape)
         node = Node(
             mv=mv[tree_idx],
             sc=sc[tree_idx],
