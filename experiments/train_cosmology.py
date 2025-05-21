@@ -44,7 +44,7 @@ def parse_args():
     parser.add_argument(
         "--use-wandb",
         action="store_true",
-        default=True,
+        default=False,
         help="Whether to use Weights & Biases for logging",
     )
     parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
