@@ -68,7 +68,7 @@ def parse_args():
 erwin_configs = {
     "smallest": {
         "c_in": 16,
-        "c_hidden": [16, 16],
+        "c_hidden": [16, 32],
         "enc_num_heads": [2, 4],
         "enc_depths": [2, 2],
         "dec_num_heads": [2],
@@ -176,7 +176,7 @@ if __name__ == "__main__":
     )
 
     dynamic_model = model_cls[args.model](**model_config)
-    model = (CosmologyModel(dynamic_model))
+    model = CosmologyModel(dynamic_model)
     model = to_cuda(model)
     # model = torch.compile(model)
 
