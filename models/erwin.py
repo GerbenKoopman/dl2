@@ -373,25 +373,15 @@ class ErwinTransformerBlock(nn.Module):
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Store original for residual connection
         mv_residual, sc_residual = mv, sc
-
-        # First normalization (handles both mv and sc)
-        mv, sc = self.norm1(mv, sc)
-
-        # BallMSA.forward is (self, sc, mv, pos)
-        mv, sc = self.BMSA(sc, mv, pos)
-
+        # BallMSA.forward is (sc, mv, pos)
+        mv, sc = self.BMSA(*self.norm1(mv, sc), pos)
         # First residual connection
         mv, sc = mv + mv_residual, sc + sc_residual
 
         # Store for second residual connection
         mv_residual, sc_residual = mv, sc
-
-        # Second normalization (handles both mv and sc)
-        mv, sc = self.norm2(mv, sc)
-
-        # SwiGLU.forward is (self, sc, mv)
-        mv, sc = self.swiglu(mv, sc)
-
+        # SwiGLU.forward is (sc, mv)
+        mv, sc = self.swiglu(*self.norm2(mv, sc))
         # Second residual connection
         return mv + mv_residual, sc + sc_residual
 
