@@ -8,13 +8,6 @@ from gatr.interface import (
     embed_oriented_plane,
 )
 
-
-# TODO: remove this
-# masses = inputs[:, :, [0]]  # (batchsize, objects, 1)
-# points = inputs[:, :, 1:4]  # (batchsize, objects, 3)
-# velocities = inputs[:, :, 4:7]  # (batchsize, objects, 3) # TODO: why 4,5,6 ???
-
-
 class Embedding(nn.Module):
     def __init__(self):
         super().__init__()
