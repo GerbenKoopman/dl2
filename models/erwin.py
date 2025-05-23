@@ -205,7 +205,7 @@ class BallPooling(nn.Module):
 
         with torch.no_grad():
             # Get batch indices from the first node in each group
-            batch_idx = node.batch_idx[::self.stride]
+            batch_idx = node.batch_idx[:: self.stride]
 
             # Calculate centers as mean of positions in each group
             centers = reduce(node.pos, "(n s) d -> n d", "mean", s=self.stride)
@@ -263,7 +263,10 @@ class BallUnpooling(nn.Module):
     def forward(self, node: Node) -> Node:
         with torch.no_grad():
             # Calculate relative positions of children to parent node
-            rel_pos = rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride) - node.pos[:, None]
+            rel_pos = (
+                rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride)
+                - node.pos[:, None]
+            )
             rel_distances = torch.norm(rel_pos, dim=-1)  # [n, stride]
 
         # Combine scalar features with distances
@@ -281,7 +284,9 @@ class BallUnpooling(nn.Module):
         node.children.sc = node.children.sc + sc
 
         # Apply normalization
-        node.children.mv, node.children.sc = self.norm(node.children.mv, node.children.sc)
+        node.children.mv, node.children.sc = self.norm(
+            node.children.mv, node.children.sc
+        )
         return node.children
 
 
@@ -331,7 +336,9 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
-        mv, sc = self.attention(multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos))
+        mv, sc = self.attention(
+            multivectors=mv, scalars=sc, attention_mask=self.create_attention_mask(pos)
+        )
 
         # Apply the single EquiLinear output projection
         return self.projection(mv, sc)
