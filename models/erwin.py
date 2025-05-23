@@ -303,6 +303,7 @@ class BallMSA(nn.Module):
         self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
 
         # Config for the SelfAttention layer
+           # Default is 8 heads
         attention_config = SelfAttentionConfig(
             multi_query=False,
             in_mv_channels=dim,
@@ -312,6 +313,8 @@ class BallMSA(nn.Module):
         )
         self.attention = SelfAttention(attention_config)
 
+        # SelfAttention already projects from hidden_channels * num_heads -> out_channels
+        # Maksim said to do another projection but not sure what size?
         self.projection = EquiLinear(
             in_mv_channels=dim,
             out_mv_channels=dim,
@@ -336,9 +339,14 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
+<<<<<<< HEAD
+           # Do we still want position based attention bias??
+        mv, sc = self.attention(multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos))
+=======
         mv, sc = self.attention(
             multivectors=mv, scalars=sc, attention_mask=self.create_attention_mask(pos)
         )
+>>>>>>> b8dfa2cd72f16ef0a1cec7e5a9da75776943bc28
 
         # Apply the single EquiLinear output projection
         return self.projection(mv, sc)
@@ -357,26 +365,30 @@ class ErwinTransformerBlock(nn.Module):
         self.ball_size = ball_size
 
         # EquiLayerNorm will handle both mv and sc # TODO: check the mv_channel_dim=-2 thing
-        self.norm1 = EquiLayerNorm(
-            mv_channel_dim=-2
-        )  # mv shape (..., channels, 16) and sc shape (..., channels)
+            # -2 is default, so shouldn't need specification or??
+        self.norm1 = EquiLayerNorm(mv_channel_dim=-2)  # mv shape (..., channels, 16) and sc shape (..., channels)
         self.norm2 = EquiLayerNorm(mv_channel_dim=-2)
 
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
+        
         # Store original for residual connection
         mv_residual, sc_residual = mv, sc
+
         # BallMSA.forward is (sc, mv, pos)
         mv, sc = self.BMSA(*self.norm1(mv, sc), pos)
+
         # First residual connection
         mv, sc = mv + mv_residual, sc + sc_residual
 
         # Store for second residual connection
         mv_residual, sc_residual = mv, sc
+        
         # SwiGLU.forward is (sc, mv)
         mv, sc = self.swiglu(*self.norm2(mv, sc))
+        
         # Second residual connection
         return mv + mv_residual, sc + sc_residual
 
@@ -384,9 +396,7 @@ class ErwinTransformerBlock(nn.Module):
 class BasicLayer(nn.Module):
     def __init__(
         self,
-        direction: Literal[
-            "down", "up", None
-        ],  # down: encoder, up: decoder, None: bottleneck
+        direction: Literal["down", "up", None],  # down: encoder, up: decoder, None: bottleneck
         depth: int,
         stride: int | None,
         in_dim: int,
@@ -400,6 +410,7 @@ class BasicLayer(nn.Module):
         super().__init__()
         hidden_dim = in_dim if direction == "down" else out_dim
 
+        # No. of TransformerBlocks = depth
         self.blocks = nn.ModuleList(
             [
                 ErwinTransformerBlock(
@@ -577,6 +588,9 @@ class ErwinTransformer(nn.Module):
         self.out_dim = c_hidden[0]
         self.apply(self._init_weights)
 
+    # No need to initialize weights of nn.Linaer, nn.LayerNorm
+    # Initialization of EquiLinaer is handled by GATr
+    # Unlike nn.LayerNorm, no parameters to initialize in EquiLayerNorm
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             nn.init.trunc_normal_(m.weight, mean=0.0, std=0.02, a=-2.0, b=2.0)
