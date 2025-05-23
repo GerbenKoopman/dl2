@@ -44,8 +44,7 @@ def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
     return result / count.unsqueeze(1).clamp(min=1)
 
 
-class SwiGLU(nn.Module):
-    """W_3 SiLU(W_1 x) ⊗ W_2 x"""
+class GeoMLP(nn.Module):
 
     def __init__(self, in_dim: int, dim: int):
         super().__init__()
@@ -339,14 +338,10 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
-<<<<<<< HEAD
            # Do we still want position based attention bias??
-        mv, sc = self.attention(multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos))
-=======
         mv, sc = self.attention(
-            multivectors=mv, scalars=sc, attention_mask=self.create_attention_mask(pos)
+            multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos)
         )
->>>>>>> b8dfa2cd72f16ef0a1cec7e5a9da75776943bc28
 
         # Apply the single EquiLinear output projection
         return self.projection(mv, sc)
@@ -370,7 +365,7 @@ class ErwinTransformerBlock(nn.Module):
         self.norm2 = EquiLayerNorm(mv_channel_dim=-2)
 
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
-        self.swiglu = SwiGLU(dim, dim * mlp_ratio)
+        self.geo_mlp = GeoMLP(dim, dim * mlp_ratio)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         
@@ -386,8 +381,8 @@ class ErwinTransformerBlock(nn.Module):
         # Store for second residual connection
         mv_residual, sc_residual = mv, sc
         
-        # SwiGLU.forward is (sc, mv)
-        mv, sc = self.swiglu(*self.norm2(mv, sc))
+        # GeoMPL.forward is (sc, mv)
+        mv, sc = self.geo_mlp(*self.norm2(mv, sc))
         
         # Second residual connection
         return mv + mv_residual, sc + sc_residual
@@ -497,7 +492,7 @@ class ErwinTransformer(nn.Module):
         strides (List): list of strides for each encoder layer (reverse for decoder).
         rotate (int): angle of rotation for cross-ball interactions; if 0, no rotation.
         decode (bool): whether to decode or not. If not, returns latent representation at the coarsest level.
-        mlp_ratio (int): ratio of SWIGLU's hidden dim to a layer's hidden dim.
+        mlp_ratio (int): ratio of GeoMLP's hidden dim to a layer's hidden dim.
         dimensionality (int): dimensionality of the input data.
         mp_steps (int): number of message passing steps in the MPNN Embedding.
 
