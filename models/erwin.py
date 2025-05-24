@@ -273,7 +273,7 @@ class BallMSA(nn.Module):
     """Ball Multi-Head Self-Attention (BMSA) module (eq. 8)."""
 
     def __init__(
-        self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 3
+        self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 16
     ):
         super().__init__()
         self.num_heads = num_heads
@@ -284,6 +284,7 @@ class BallMSA(nn.Module):
         # Config for the SelfAttention layer
         # Default is 8 heads
         attention_config = SelfAttentionConfig(
+            num_heads=self.num_heads,  # Use the passed num_heads
             multi_query=False,
             in_mv_channels=dim,
             out_mv_channels=dim,
@@ -317,10 +318,13 @@ class BallMSA(nn.Module):
         return dist.view(-1, 1)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
+        # Create attention mask using positions
+        attention_mask = self.create_attention_mask(pos)
+
         # Apply self attention
         # Do we still want position based attention bias??
         mv, sc = self.attention(
-            multivectors=mv, scalars=sc, attention_mask=self.create_attention_mask(pos)
+            multivectors=mv, scalars=sc, attention_mask=attention_mask
         )
 
         # Apply the single EquiLinear output projection
