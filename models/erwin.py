@@ -44,26 +44,6 @@ def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
     return result / count.unsqueeze(1).clamp(min=1)
 
 
-class GeoMLP(nn.Module):
-
-    def __init__(self, in_dim: int, dim: int):
-        super().__init__()
-
-        config = MLPConfig(
-            mv_channels=[in_dim, dim, in_dim],
-            s_channels=[in_dim, dim, in_dim],
-            activation="gelu",
-        )
-
-        # reference_mv is on CPU first, later we need to move to gpu
-        self.reference_mv = construct_reference_multivector("canonical", torch.ones(16))
-        self.nonlinearity = GeoMLP(config)
-
-    def forward(self, mv: torch.Tensor, sc: torch.Tensor):
-        mv, sc = self.nonlinearity(mv, sc, reference_mv=self.reference_mv.to(mv.device))
-        return mv, sc
-
-
 class MPNN(nn.Module):
     """
     Message Passing Neural Network (see Gilmer et al., 2017).
@@ -302,7 +282,7 @@ class BallMSA(nn.Module):
         self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
 
         # Config for the SelfAttention layer
-           # Default is 8 heads
+        # Default is 8 heads
         attention_config = SelfAttentionConfig(
             multi_query=False,
             in_mv_channels=dim,
@@ -338,9 +318,9 @@ class BallMSA(nn.Module):
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # Apply self attention
-           # Do we still want position based attention bias??
+        # Do we still want position based attention bias??
         mv, sc = self.attention(
-            multivectors=mv, scalars=sc, attn_mask=self.create_attention_mask(pos)
+            multivectors=mv, scalars=sc, attention_mask=self.create_attention_mask(pos)
         )
 
         # Apply the single EquiLinear output projection
@@ -354,25 +334,38 @@ class ErwinTransformerBlock(nn.Module):
         num_heads: int,
         ball_size: int,
         mlp_ratio: int,
-        dimensionality: int = 3,
+        dimensionality: int = 16,
     ):
         super().__init__()
         self.ball_size = ball_size
 
         # EquiLayerNorm will handle both mv and sc # TODO: check the mv_channel_dim=-2 thing
-            # -2 is default, so shouldn't need specification or??
-        self.norm1 = EquiLayerNorm(mv_channel_dim=-2)  # mv shape (..., channels, 16) and sc shape (..., channels)
+        # -2 is default, so shouldn't need specification or??
+        self.norm1 = EquiLayerNorm(
+            mv_channel_dim=-2
+        )  # mv shape (..., channels, 16) and sc shape (..., channels)
         self.norm2 = EquiLayerNorm(mv_channel_dim=-2)
 
         self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
-        self.geo_mlp = GeoMLP(dim, dim * mlp_ratio)
+
+        self.geo_mlp = GeoMLP(
+            MLPConfig(
+                mv_channels=[dim, dim * mlp_ratio, dim],
+                s_channels=[dim, dim * mlp_ratio, dim],
+                activation="gelu",
+            )
+        )
+
+        self.reference_mv = construct_reference_multivector(
+            "canonical", torch.ones(dimensionality)
+        )
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
-        
+
         # Store original for residual connection
         mv_residual, sc_residual = mv, sc
 
-        # BallMSA.forward is (sc, mv, pos)
+        # BallMSA.forward is (mv, sc, pos)
         mv, sc = self.BMSA(*self.norm1(mv, sc), pos)
 
         # First residual connection
@@ -380,10 +373,12 @@ class ErwinTransformerBlock(nn.Module):
 
         # Store for second residual connection
         mv_residual, sc_residual = mv, sc
-        
-        # GeoMPL.forward is (sc, mv)
-        mv, sc = self.geo_mlp(*self.norm2(mv, sc))
-        
+
+        # GeoMPL.forward is (mv, sc)
+        mv, sc = self.geo_mlp(
+            *self.norm2(mv, sc), reference_mv=self.reference_mv.to(mv.device)
+        )
+
         # Second residual connection
         return mv + mv_residual, sc + sc_residual
 
@@ -391,7 +386,9 @@ class ErwinTransformerBlock(nn.Module):
 class BasicLayer(nn.Module):
     def __init__(
         self,
-        direction: Literal["down", "up", None],  # down: encoder, up: decoder, None: bottleneck
+        direction: Literal[
+            "down", "up", None
+        ],  # down: encoder, up: decoder, None: bottleneck
         depth: int,
         stride: int | None,
         in_dim: int,
