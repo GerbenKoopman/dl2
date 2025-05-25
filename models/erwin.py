@@ -270,65 +270,67 @@ class BallUnpooling(nn.Module):
 
 
 class BallMSA(nn.Module):
-    """Ball Multi-Head Self-Attention (BMSA) module (eq. 8)."""
+    """
+    Ball Multi-Head Self-Attention (BMSA) module (eq. 8).
+    """
 
     def __init__(
         self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 16
-    ):
+    ): # dimensionality here refers to the GA's dimension, typically 16 for G(3,0,1)
         super().__init__()
         self.num_heads = num_heads
         self.ball_size = ball_size
+        self.feature_dim = dim # Number of feature channels for mv and sc
 
-        self.sigma_att = nn.Parameter(torch.tensor(1.0))  # TODO: skip this?
-
-        # Config for the SelfAttention layer
-        # Default is 8 heads
+        # GATr's SelfAttention. Input/output channels are 'dim'.
+        # GATr layers internally handle the geometric algebra's dimensionality.
         attention_config = SelfAttentionConfig(
-            num_heads=self.num_heads,  # Use the passed num_heads
-            multi_query=False,
-            in_mv_channels=dim,
-            out_mv_channels=dim,
-            in_s_channels=dim,
-            out_s_channels=dim,
+            num_heads=self.num_heads,
+            multi_query=False, # As per original snippet
+            in_mv_channels=self.feature_dim,
+            out_mv_channels=self.feature_dim,
+            in_s_channels=self.feature_dim,
+            out_s_channels=self.feature_dim,
         )
         self.attention = SelfAttention(attention_config)
 
-        # SelfAttention already projects from hidden_channels * num_heads -> out_channels
-        # Maksim said to do another projection but not sure what size?
+        # Final output projection layer
         self.projection = EquiLinear(
-            in_mv_channels=dim,
-            out_mv_channels=dim,
-            in_s_channels=dim,
-            out_s_channels=dim,
+            in_mv_channels=self.feature_dim,
+            out_mv_channels=self.feature_dim,
+            in_s_channels=self.feature_dim,
+            out_s_channels=self.feature_dim,
         )
-
-    @torch.no_grad()
-    def create_attention_mask(self, pos: torch.Tensor):
-        """Distance-based attention bias (eq. 10)."""
-        pos = rearrange(pos, "(n m) d -> n m d", m=self.ball_size)
-        return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
-
-    @torch.no_grad()
-    def compute_rel_dist(self, pos: torch.Tensor):
-        """Relative distance of leafs to the center of the ball (eq. 9)."""
-        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
-        pos = pos.view(num_balls, self.ball_size, dim)
-        rel = pos - pos.mean(dim=1, keepdim=True)
-        dist = rel.norm(dim=2, keepdim=True)
-        return dist.view(-1, 1)
 
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
-        # Create attention mask using positions
-        attention_mask = self.create_attention_mask(pos)
+        # mv shape: (N_total, feature_dim, algebra_dim), e.g., (B*S, C, 16)
+        # sc shape: (N_total, feature_dim), e.g., (B*S, C)
+        # pos shape: (N_total, 3) - currently unused in this simplified version
+        # N_total = num_balls * ball_size
 
-        # Apply self attention
-        # Do we still want position based attention bias??
-        mv, sc = self.attention(
-            multivectors=mv, scalars=sc, attention_mask=attention_mask
+        N_total = mv.shape[0]
+        num_balls = N_total // self.ball_size
+
+        # Reshape for per-ball attention:
+        # (num_balls, ball_size, feature_dim, algebra_dim)
+        mv_reshaped = rearrange(mv, '(n m) c d -> n m c d', n=num_balls, m=self.ball_size)
+        # (num_balls, ball_size, feature_dim)
+        sc_reshaped = rearrange(sc, '(n m) c -> n m c', n=num_balls, m=self.ball_size)
+
+        # Apply GATr's SelfAttention per ball (attention_mask=None) # TODO: do we need the attention_mask?
+        # self.attention expects (batch, items, channels_mv, alg_dim) and (batch, items, channels_sc)
+        mv_attended, sc_attended = self.attention(
+            multivectors=mv_reshaped, scalars=sc_reshaped, attention_mask=None
         )
+        # mv_attended shape: (num_balls, ball_size, feature_dim, algebra_dim)
+        # sc_attended shape: (num_balls, ball_size, feature_dim)
 
-        # Apply the single EquiLinear output projection
-        return self.projection(mv, sc)
+        # Reshape back to original flat structure
+        mv_out = rearrange(mv_attended, 'n m c d -> (n m) c d')
+        sc_out = rearrange(sc_attended, 'n m c -> (n m) c')
+
+        # Apply the final output projection
+        return self.projection(mv_out, sc_out)
 
 
 class ErwinTransformerBlock(nn.Module):
