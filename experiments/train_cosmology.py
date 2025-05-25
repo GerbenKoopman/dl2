@@ -29,7 +29,7 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest", "small", "medium", "large"],
+        choices=["smallest", "smallest_mp", "small", "medium", "large"],
         help="Model size configuration",
     )
     parser.add_argument(
@@ -77,6 +77,20 @@ erwin_configs = {
         "ball_sizes": [128, 128],
         "rotate": 0,
         "mp_steps": 0,
+        "use_distance_bias": True,
+    },
+    "smallest_mp": {
+        "c_in": 8,
+        "c_hidden": [8, 16],
+        "enc_num_heads": [2, 4],
+        "enc_depths": [2, 2],
+        "dec_num_heads": [2],
+        "dec_depths": [2],
+        "strides": [2],
+        "ball_sizes": [128, 128],
+        "rotate": 0,
+        "mp_steps": 3,
+        "use_distance_bias": True,
     },
     "small": {
         "c_in": 32,
