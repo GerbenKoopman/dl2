@@ -28,20 +28,45 @@ from gatr.utils.tensors import construct_reference_multivector
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
     """
     Averages all values from src into the receivers at the indices specified by idx.
+    Handles both 2D (scalar) and 3D (multivector) src tensors.
 
     Args:
-        src (torch.Tensor): Source tensor of shape (N, D).
-        idx (torch.Tensor): Indices tensor of shape (N,).
-        num_receivers (int): Number of receivers (usually the maximum index in idx + 1).
+        src (torch.Tensor): Source tensor.
+                            For scalars: (N_messages, D_features).
+                            For multivectors: (N_messages, D_channels, D_algebra).
+        idx (torch.Tensor): Indices tensor of shape (N_messages,).
+        num_receivers (int): Number of receivers.
 
     Returns:
-        torch.Tensor: Result tensor of shape (num_receivers, D).
+        torch.Tensor: Result tensor.
+                      For scalars: (num_receivers, D_features).
+                      For multivectors: (num_receivers, D_channels, D_algebra).
     """
-    result = torch.zeros(num_receivers, src.size(1), dtype=src.dtype, device=src.device)
+    if src.ndim == 2:  # Scalar case
+        # src shape: (N_messages, D_features)
+        # result shape: (num_receivers, D_features)
+        result = torch.zeros(num_receivers, src.size(1), dtype=src.dtype, device=src.device)
+        count_unsqueeze_dims = 1
+    elif src.ndim == 3:  # Multivector case
+        # src shape: (N_messages, D_channels, D_algebra)
+        # result shape: (num_receivers, D_channels, D_algebra)
+        result = torch.zeros(num_receivers, src.size(1), src.size(2), dtype=src.dtype, device=src.device)
+        count_unsqueeze_dims = 2
+    else:
+        raise ValueError(f"Unsupported src ndim: {src.ndim}. Shape was {src.shape}")
+
     count = torch.zeros(num_receivers, dtype=torch.long, device=src.device)
+    
     result.index_add_(0, idx, src)
     count.index_add_(0, idx, torch.ones_like(idx, dtype=torch.long))
-    return result / count.unsqueeze(1).clamp(min=1)
+
+    clamped_count = count.clamp(min=1)
+    if count_unsqueeze_dims == 1:
+        clamped_count = clamped_count.unsqueeze(1)
+    elif count_unsqueeze_dims == 2:
+        clamped_count = clamped_count.unsqueeze(1).unsqueeze(2)
+    
+    return result / clamped_count
 
 
 class MPNN(nn.Module):
@@ -53,43 +78,81 @@ class MPNN(nn.Module):
 
     """
 
-    def __init__(self, dim: int, mp_steps: int, dimensionality: int = 3):
+    def __init__(self, dim: int, mp_steps: int, dimensionality: int = 3, mlp_ratio: int = 2):
         super().__init__()
+
+
+        self.reference_mv = construct_reference_multivector(
+            "canonical", torch.ones(dimensionality)
+        )
+
         self.message_fns = nn.ModuleList(
             [
-                nn.Sequential(
-                    EquiLinear(2 * dim + 16, dim),
-                    ScalarGatedNonlinearity("gelu"),
-                    EquiLayerNorm(dim),
-                )
+                GeoMLP(
+                    MLPConfig(
+                        mv_channels=[2*dim, 2 * mlp_ratio * dim, dim],
+                        s_channels=[2*dim + 1, 2 * mlp_ratio * dim , dim], # +1 for the relative distance
+                        activation="gelu",
+
+                    )
+        )
                 for _ in range(mp_steps)
             ]
         )
 
         self.update_fns = nn.ModuleList(
             [
-                nn.Sequential(EquiLinear(2 * dim, dim), EquiLayerNorm(dim))
+                UpdateModule(dim)
                 for _ in range(mp_steps)
             ]
         )
 
     def layer(
-        self,
+        self, 
         message_fn: nn.Module,
         update_fn: nn.Module,
-        h: torch.Tensor,
+        mv: torch.Tensor,
+        sc: torch.Tensor,
         edge_attr: torch.Tensor,
         edge_index: torch.Tensor,
     ):
         row, col = edge_index
-        messages = message_fn(torch.cat([h[row], h[col], edge_attr], dim=-1))
-        message = scatter_mean(messages, col, h.size(0))
-        update = update_fn(torch.cat([h, message], dim=-1))
-        return h + update
+        
+        # Construct message inputs by concatenating source and target features
+        # For multivectors: [mv_i, mv_j]
+        # For scalars: [sc_i, sc_j, edge_attr]
+        
+        # mv shape: (N_nodes, N_channels, D_algebra) -> mv[row]: (N_edges, N_channels, D_algebra)
+        # Concatenate along N_channels dim (dim=1) - NOTE: dim=-2 would work too
+        mv_msg_input = torch.cat([mv[row], mv[col]], dim=1)
+        
+        # sc shape: (N_nodes, N_channels_scalar) -> sc[row]: (N_edges, N_channels_scalar)
+        # edge_attr shape: (N_edges, 1)
+        # Concatenate along N_channels_scalar dim (dim=-1)
+        sc_msg_input = torch.cat([sc[row], sc[col], edge_attr], dim=-1)
+        
+        # Compute messages using GeoMLP
+        mv_messages, sc_messages = message_fn(mv_msg_input, sc_msg_input, self.reference_mv.to(mv.device)) # TODO: reference_mv?
+        
+        # Aggregate messages per receiver node (col)
+        mv_agg = scatter_mean(mv_messages, col, mv.size(0))
+        sc_agg = scatter_mean(sc_messages, col, sc.size(0))
+        
+        # Update node features
+        # mv_input_for_update: (N_nodes, 2 * N_channels, D_algebra)
+        # sc_input_for_update: (N_nodes, 2 * N_channels_scalar)
+        mv_update, sc_update = update_fn(
+            torch.cat([mv, mv_agg], dim=1), # NOTE: dim=-2 would work too
+            torch.cat([sc, sc_agg], dim=-1)
+        )
+        
+        # Residual connection
+        return mv + mv_update, sc + sc_update
 
     @torch.no_grad()
     def compute_edge_attr(self, pos, edge_index):
-        return pos[edge_index[0]] - pos[edge_index[1]]
+        # Ensure edge_attr is (num_edges, 1) for concatenation
+        return torch.norm(pos[edge_index[0]] - pos[edge_index[1]], dim=-1, keepdim=True)
 
     def forward(
         self,
@@ -98,13 +161,10 @@ class MPNN(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
-        raise NotImplementedError(
-            "EquiLinear __init() for scalars requires EquiLinear(d_mv_in, d_mv_out, d_s_in, d_s_out), but is not yet implemented as such"
-        )
         edge_attr = self.compute_edge_attr(pos, edge_index)
         for message_fn, update_fn in zip(self.message_fns, self.update_fns):
-            mv = self.layer(message_fn, update_fn, mv, edge_attr, edge_index)
-            sc = self.layer(message_fn, update_fn, sc, edge_attr, edge_index)
+            mv, sc = self.layer(message_fn, update_fn, mv, sc, edge_attr, edge_index)
+            
         return mv, sc
 
 
@@ -275,15 +335,18 @@ class BallMSA(nn.Module):
     """
 
     def __init__(
-        self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 16
+        self, dim: int, num_heads: int, ball_size: int, dimensionality: int = 16, use_distance_bias: bool = False
     ): # dimensionality here refers to the GA's dimension, typically 16 for G(3,0,1)
         super().__init__()
         self.num_heads = num_heads
         self.ball_size = ball_size
-        self.feature_dim = dim # Number of feature channels for mv and sc
+        self.feature_dim = dim
+        self.use_distance_bias = use_distance_bias
 
-        # GATr's SelfAttention. Input/output channels are 'dim'.
-        # GATr layers internally handle the geometric algebra's dimensionality.
+        # Add the sigma parameter for distance-based attention bias only if needed
+        self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1))) if use_distance_bias else None
+
+        # GATr's SelfAttention with distance-based attention bias
         attention_config = SelfAttentionConfig(
             num_heads=self.num_heads,
             multi_query=False, # As per original snippet
@@ -302,6 +365,18 @@ class BallMSA(nn.Module):
             out_s_channels=self.feature_dim,
         )
 
+    @torch.no_grad()
+    def create_attention_mask(self, pos: torch.Tensor):
+        """ Distance-based attention bias (eq. 10). """
+        if not self.use_distance_bias:
+            return None
+            
+        pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
+        # Create attention mask based on pairwise distances
+        attention_bias = self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
+        # Convert to attention mask format expected by GATr
+        return attention_bias
+
     def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
         # mv shape: (N_total, feature_dim, algebra_dim), e.g., (B*S, C, 16)
         # sc shape: (N_total, feature_dim), e.g., (B*S, C)
@@ -317,10 +392,14 @@ class BallMSA(nn.Module):
         # (num_balls, ball_size, feature_dim)
         sc_reshaped = rearrange(sc, '(n m) c -> n m c', n=num_balls, m=self.ball_size)
 
-        # Apply GATr's SelfAttention per ball (attention_mask=None) # TODO: do we need the attention_mask?
-        # self.attention expects (batch, items, channels_mv, alg_dim) and (batch, items, channels_sc)
+        # Create attention mask based on distances only if use_distance_bias is True
+        attention_mask = self.create_attention_mask(pos) if self.use_distance_bias else None
+
+        # Apply GATr's SelfAttention per ball with the distance-based attention mask
         mv_attended, sc_attended = self.attention(
-            multivectors=mv_reshaped, scalars=sc_reshaped, attention_mask=None
+            multivectors=mv_reshaped, 
+            scalars=sc_reshaped, 
+            attention_mask=attention_mask
         )
         # mv_attended shape: (num_balls, ball_size, feature_dim, algebra_dim)
         # sc_attended shape: (num_balls, ball_size, feature_dim)
@@ -333,6 +412,22 @@ class BallMSA(nn.Module):
         return self.projection(mv_out, sc_out)
 
 
+class UpdateModule(nn.Module):
+    def __init__(self, dim_channel: int):
+        super().__init__()
+        self.equi_linear = EquiLinear(
+            in_mv_channels=2 * dim_channel, 
+            out_mv_channels=dim_channel,
+            in_s_channels=2 * dim_channel,
+            out_s_channels=dim_channel
+        )
+        self.norm = EquiLayerNorm() 
+
+    def forward(self, mv_in: torch.Tensor, sc_in: torch.Tensor):
+        mv_processed, sc_processed = self.equi_linear(mv_in, sc_in)
+        return self.norm(mv_processed, sc_processed)
+
+
 class ErwinTransformerBlock(nn.Module):
     def __init__(
         self,
@@ -341,6 +436,7 @@ class ErwinTransformerBlock(nn.Module):
         ball_size: int,
         mlp_ratio: int,
         dimensionality: int = 16,
+        use_distance_bias: bool = False,
     ):
         super().__init__()
         self.ball_size = ball_size
@@ -352,7 +448,7 @@ class ErwinTransformerBlock(nn.Module):
         )  # mv shape (..., channels, 16) and sc shape (..., channels)
         self.norm2 = EquiLayerNorm(mv_channel_dim=-2)
 
-        self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality)
+        self.BMSA = BallMSA(dim, num_heads, ball_size, dimensionality, use_distance_bias=use_distance_bias)
 
         self.geo_mlp = GeoMLP(
             MLPConfig(
@@ -404,6 +500,7 @@ class BasicLayer(nn.Module):
         mlp_ratio: int,
         rotate: bool,
         dimensionality: int = 3,
+        use_distance_bias: bool = False,
     ):
         super().__init__()
         hidden_dim = in_dim if direction == "down" else out_dim
@@ -412,7 +509,7 @@ class BasicLayer(nn.Module):
         self.blocks = nn.ModuleList(
             [
                 ErwinTransformerBlock(
-                    hidden_dim, num_heads, ball_size, mlp_ratio, dimensionality
+                    hidden_dim, num_heads, ball_size, mlp_ratio, dimensionality, use_distance_bias=use_distance_bias
                 )
                 for _ in range(depth)
             ]
@@ -498,6 +595,7 @@ class ErwinTransformer(nn.Module):
         mlp_ratio (int): ratio of GeoMLP's hidden dim to a layer's hidden dim.
         dimensionality (int): dimensionality of the input data.
         mp_steps (int): number of message passing steps in the MPNN Embedding.
+        use_distance_bias (bool): whether to use distance-based attention bias.
 
     Notes:
         - lengths of ball_size, enc_num_heads, enc_depths must be the same N (as it includes encoder and bottleneck).
@@ -519,6 +617,7 @@ class ErwinTransformer(nn.Module):
         mlp_ratio: int = 4,
         dimensionality: int = 3,
         mp_steps: int = 3,
+        use_distance_bias: bool = False,
     ):
         super().__init__()
         assert len(enc_num_heads) == len(enc_depths) == len(ball_sizes)
@@ -548,6 +647,7 @@ class ErwinTransformer(nn.Module):
                     rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
                     dimensionality=16,
+                    use_distance_bias=use_distance_bias,
                 )
             )
 
@@ -562,6 +662,7 @@ class ErwinTransformer(nn.Module):
             rotate=rotate > 0,
             mlp_ratio=mlp_ratio,
             dimensionality=16,
+            use_distance_bias=use_distance_bias,
         )
 
         if decode:
@@ -579,6 +680,7 @@ class ErwinTransformer(nn.Module):
                         rotate=rotate > 0,
                         mlp_ratio=mlp_ratio,
                         dimensionality=16,
+                        use_distance_bias=use_distance_bias,
                     )
                 )
 
@@ -611,6 +713,7 @@ class ErwinTransformer(nn.Module):
         **kwargs,
     ):
         with torch.no_grad():
+            # TODO: check if the edge_index calculation is optimal, do we redo it every time?
             # if not given, build the ball tree and radius graph
             if tree_idx is None and tree_mask is None:
                 tree_idx, tree_mask = build_balltree(
