@@ -21,10 +21,17 @@ from gatr.layers import (
     ScalarGatedNonlinearity,
 )
 from gatr.layers.mlp import MLPConfig, ScalarGatedNonlinearity
-from gatr.interface import embed_point
+from gatr.interface import embed_point, embed_translation
 from gatr.utils.tensors import construct_reference_multivector
 
 from .mpnn_variants import MPNN, DistanceBasedScalarOnlyMPNN
+from .ball_pooling_unpooling_variants import (
+    BallPoolingRelDist,
+    BallUnpoolingRelDist,
+    BallPoolingRelDistRelPosMv,
+    BallUnpoolingRelDistRelPosMv,
+    Node,
+)
 
 
 class ErwinEmbedding(nn.Module):
@@ -69,141 +76,6 @@ class ErwinEmbedding(nn.Module):
         else:
             # Original MPNN behavior
             return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else (mv, sc)
-
-
-@dataclass
-class Node:
-    """Dataclass to store the hierarchical node information."""
-
-    mv: torch.Tensor
-    sc: torch.Tensor
-    pos: torch.Tensor
-    batch_idx: torch.Tensor
-    tree_idx_rot: torch.Tensor | None = None
-    children: Node | None = None
-
-
-class BallPooling(nn.Module):
-    """
-    Pooling of leaf nodes in a ball:
-        1. select balls of size 'stride'.
-        2. concatenate leaf nodes inside each ball along with their relative positions to the ball center.
-        3. apply equilinear projection and normalization.
-        4. the output is the center of each ball endowed with the pooled features.
-    """
-
-    def __init__(
-        self, in_dim: int, out_dim: int, stride: int = 2, dimensionality: int = 3
-    ):
-        super().__init__()
-        self.stride = stride
-
-        # Single EquiLinear for both multivectors and scalars
-        self.projection = EquiLinear(
-            in_mv_channels=in_dim * stride,
-            out_mv_channels=out_dim,
-            in_s_channels=in_dim * stride + stride,
-            out_s_channels=out_dim,
-        )
-
-        # Normalization layer
-        self.norm = EquiLayerNorm()
-
-    def forward(self, node: Node) -> Node:
-        if self.stride == 1:  # no pooling
-            return Node(
-                mv=node.mv,
-                sc=node.sc,
-                pos=node.pos,
-                batch_idx=node.batch_idx,
-                children=node,
-            )
-
-        with torch.no_grad():
-            # Get batch indices from the first node in each group
-            batch_idx = node.batch_idx[:: self.stride]
-
-            # Calculate centers as mean of positions in each group
-            centers = reduce(node.pos, "(n s) d -> n d", "mean", s=self.stride)
-
-            # Calculate relative positions
-            pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
-            rel_pos = pos - centers[:, None]
-            rel_distances = torch.norm(rel_pos, dim=-1)
-
-        # Reshape multivectors and scalars
-        mv = rearrange(node.mv, "(n s) c d -> n (s c) d", s=self.stride)
-        sc = rearrange(node.sc, "(n s) c -> n (s c)", s=self.stride)
-
-        # Add distance information to scalar features
-        sc = torch.cat([sc, rel_distances.reshape(centers.shape[0], -1)], dim=-1)
-
-        # Apply a single EquiLinear projection and normalization
-        mv, sc = self.projection(mv, sc)
-        mv, sc = self.norm(mv, sc)
-
-        return Node(
-            mv=mv,
-            sc=sc,
-            pos=centers,
-            batch_idx=batch_idx,
-            # tree_idx_rot=None,
-            children=node,
-        )
-
-
-class BallUnpooling(nn.Module):
-    """
-    Ball unpooling (refinement) with equivariance:
-        1. compute relative positions of children to the center of the ball
-        2. use distances for scalar features to maintain rotation invariance
-        3. apply equilinear projection and normalization
-        4. output is a refined tree with the same number of nodes as before pooling
-    """
-
-    def __init__(self, in_dim: int, out_dim: int, stride: int, dimensionality: int = 3):
-        super().__init__()
-        self.stride = stride
-
-        # Single EquiLinear for both multivectors and scalars
-        self.projection = EquiLinear(
-            in_mv_channels=in_dim,
-            out_mv_channels=stride * out_dim,
-            in_s_channels=in_dim + stride,  # Add space for distances
-            out_s_channels=stride * out_dim,
-        )
-
-        # Normalization layer
-        self.norm = EquiLayerNorm()
-
-    def forward(self, node: Node) -> Node:
-        with torch.no_grad():
-            # Calculate relative positions of children to parent node
-            rel_pos = (
-                rearrange(node.children.pos, "(n m) d -> n m d", m=self.stride)
-                - node.pos[:, None]
-            )
-            rel_distances = torch.norm(rel_pos, dim=-1)  # [n, stride]
-
-        # Combine scalar features with distances
-        sc = torch.cat([node.sc, rel_distances], dim=-1)
-
-        # Process multivectors and scalars through the EquiLinear
-        mv, sc = self.projection(node.mv, sc)
-
-        # Reshape the projections to match the children's dimensions
-        mv = rearrange(mv, "n (m d) e -> (n m) d e", m=self.stride)
-        sc = rearrange(sc, "n (m d) -> (n m) d", m=self.stride)
-
-        # Apply residual connection to children's features
-        node.children.mv = node.children.mv + mv
-        node.children.sc = node.children.sc + sc
-
-        # Apply normalization
-        node.children.mv, node.children.sc = self.norm(
-            node.children.mv, node.children.sc
-        )
-        return node.children
 
 
 class BallMSA(nn.Module):
@@ -376,8 +248,11 @@ class BasicLayer(nn.Module):
         ball_size: int,
         mlp_ratio: int,
         rotate: bool,
-        dimensionality: int = 3,
+        dimensionality: int = 3, # Spatial dimensionality for embed_translation if used
+        algebra_dimensionality: int = 16, # GA dimensionality for blocks
         use_distance_bias: bool = False,
+        pooling_type: str = "RelDistRelPosMv", # New parameter
+        unpooling_type: str = "RelDistRelPosMv", # New parameter
     ):
         super().__init__()
         hidden_dim = in_dim if direction == "down" else out_dim
@@ -386,7 +261,7 @@ class BasicLayer(nn.Module):
         self.blocks = nn.ModuleList(
             [
                 ErwinTransformerBlock(
-                    hidden_dim, num_heads, ball_size, mlp_ratio, dimensionality, use_distance_bias=use_distance_bias
+                    hidden_dim, num_heads, ball_size, mlp_ratio, algebra_dimensionality, use_distance_bias=use_distance_bias
                 )
                 for _ in range(depth)
             ]
@@ -396,10 +271,23 @@ class BasicLayer(nn.Module):
         self.pool = lambda node: node
         self.unpool = lambda node: node
 
+        # Select pooling strategy
         if direction == "down" and stride is not None:
-            self.pool = BallPooling(hidden_dim, out_dim, stride)
+            if pooling_type == "RelDist":
+                self.pool = BallPoolingRelDist(hidden_dim, out_dim, stride, dimensionality)
+            elif pooling_type == "RelDistRelPosMv":
+                self.pool = BallPoolingRelDistRelPosMv(hidden_dim, out_dim, stride, dimensionality)
+            else:
+                raise ValueError(f"Unknown pooling_type: {pooling_type}")
+
+        # Select unpooling strategy
         elif direction == "up" and stride is not None:
-            self.unpool = BallUnpooling(in_dim, hidden_dim, stride, dimensionality)
+            if unpooling_type == "RelDist":
+                self.unpool = BallUnpoolingRelDist(in_dim, hidden_dim, stride, dimensionality)
+            elif unpooling_type == "RelDistRelPosMv":
+                self.unpool = BallUnpoolingRelDistRelPosMv(in_dim, hidden_dim, stride, dimensionality)
+            else:
+                raise ValueError(f"Unknown unpooling_type: {unpooling_type}")
 
     def forward(self, node: Node) -> Node:
         node = self.unpool(node)
@@ -410,48 +298,6 @@ class BasicLayer(nn.Module):
             node.sc = sc
 
         return self.pool(node)
-        """
-        # Simplified rotation check for clarity
-        tree_idx_rot_inv = None
-        if any(self.rotate):  # If any block in this layer might use rotation
-            if node.tree_idx_rot is not None:
-                tree_idx_rot_inv = torch.argsort(node.tree_idx_rot)
-            # else: # Optional: Add an assertion or warning if rotation is expected but tree_idx_rot is None
-            #     if any(r for r in self.rotate): # Only if some blocks actually rotate
-            #         assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation if any block uses it"
-
-        for i, blk in enumerate(self.blocks):
-            current_block_rotates = self.rotate[i]
-            # NOTE: !!! we haven't tested the if=true branch here, which would be the rotation case !!!
-            if current_block_rotates:
-                assert (
-                    node.tree_idx_rot is not None
-                ), "tree_idx_rot must be provided for rotation for this block"
-                # Ensure tree_idx_rot_inv is computed if not already
-                if (
-                    tree_idx_rot_inv is None
-                ):  # Should have been computed if any(self.rotate) and node.tree_idx_rot was not None
-                    assert (
-                        node.tree_idx_rot is not None
-                    ), "Cannot rotate without tree_idx_rot"
-                    tree_idx_rot_inv = torch.argsort(node.tree_idx_rot)
-
-                mv_rotated = node.mv[node.tree_idx_rot]
-                sc_rotated = node.sc[node.tree_idx_rot]
-                pos_rotated = node.pos[node.tree_idx_rot]
-
-                processed_mv_rotated, processed_sc_rotated = blk(
-                    mv_rotated, sc_rotated, pos_rotated
-                )
-
-                node.mv = processed_mv_rotated[tree_idx_rot_inv]
-                node.sc = processed_sc_rotated[tree_idx_rot_inv]
-            else:
-                processed_mv, processed_sc = blk(node.mv, node.sc, node.pos)
-                node.mv = processed_mv
-                node.sc = processed_sc
-        return self.pool(node)
-        """
 
 
 class ErwinTransformer(nn.Module):
@@ -470,10 +316,13 @@ class ErwinTransformer(nn.Module):
         rotate (int): angle of rotation for cross-ball interactions; if 0, no rotation.
         decode (bool): whether to decode or not. If not, returns latent representation at the coarsest level.
         mlp_ratio (int): ratio of GeoMLP's hidden dim to a layer's hidden dim.
-        dimensionality (int): dimensionality of the input data.
+        dimensionality (int): spatial dimensionality of the input data (e.g., 3 for 3D points).
+        algebra_dimensionality (int): dimensionality of the geometric algebra (e.g., 16 for G(3,0,1)).
         mp_steps (int): number of message passing steps in the MPNN Embedding.
         use_distance_bias (bool): whether to use distance-based attention bias.
         mpnn_type (str): type of MPNN to use.
+        pooling_type (str): type of pooling to use ("RelDist" or "RelDistRelPosMv").
+        unpooling_type (str): type of unpooling to use ("RelDist" or "RelDistRelPosMv").
 
     Notes:
         - lengths of ball_size, enc_num_heads, enc_depths must be the same N (as it includes encoder and bottleneck).
@@ -493,10 +342,13 @@ class ErwinTransformer(nn.Module):
         rotate: int,
         decode: bool = True,
         mlp_ratio: int = 4,
-        dimensionality: int = 3,
+        dimensionality: int = 3, # Spatial dimensionality
+        algebra_dimensionality: int = 16, # GA dimensionality
         mp_steps: int = 3,
         use_distance_bias: bool = False,
-        mpnn_type: str = "scalar_only"
+        mpnn_type: str = "scalar_only",
+        pooling_type: str = "RelDistRelPosMv", # New parameter
+        unpooling_type: str = "RelDistRelPosMv", # New parameter
     ):
         super().__init__()
         assert len(enc_num_heads) == len(enc_depths) == len(ball_sizes)
@@ -512,7 +364,7 @@ class ErwinTransformer(nn.Module):
             in_dim=c_in, 
             dim=c_hidden[0], 
             mp_steps=mp_steps, 
-            dimensionality=16,
+            dimensionality=algebra_dimensionality, # ErwinEmbedding expects GA dimensionality
             mpnn_type=mpnn_type
         )
 
@@ -531,8 +383,11 @@ class ErwinTransformer(nn.Module):
                     ball_size=ball_sizes[i],
                     rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
-                    dimensionality=16,
+                    dimensionality=dimensionality, # Pass spatial dimensionality
+                    algebra_dimensionality=algebra_dimensionality, # Pass GA dimensionality
                     use_distance_bias=use_distance_bias,
+                    pooling_type=pooling_type, # Pass pooling_type
+                    unpooling_type=unpooling_type, # Pass unpooling_type
                 )
             )
 
@@ -546,8 +401,12 @@ class ErwinTransformer(nn.Module):
             ball_size=ball_sizes[-1],
             rotate=rotate > 0,
             mlp_ratio=mlp_ratio,
-            dimensionality=16,
+            dimensionality=dimensionality,
+            algebra_dimensionality=algebra_dimensionality,
             use_distance_bias=use_distance_bias,
+            # Bottleneck doesn't pool/unpool, so types are not strictly needed but pass for consistency
+            pooling_type=pooling_type, 
+            unpooling_type=unpooling_type,
         )
 
         if decode:
@@ -564,13 +423,18 @@ class ErwinTransformer(nn.Module):
                         ball_size=ball_sizes[i],
                         rotate=rotate > 0,
                         mlp_ratio=mlp_ratio,
-                        dimensionality=16,
+                        dimensionality=dimensionality,
+                        algebra_dimensionality=algebra_dimensionality,
                         use_distance_bias=use_distance_bias,
+                        pooling_type=pooling_type, # Pass pooling_type
+                        unpooling_type=unpooling_type, # Pass unpooling_type
                     )
                 )
 
         self.in_dim = c_in
         self.out_dim = c_hidden[0]
+        # Pass spatial dimensionality, used by pooling/unpooling if they embed positions
+        self.dimensionality = dimensionality 
         self.apply(self._init_weights)
 
     # No need to initialize weights of nn.Linaer, nn.LayerNorm
