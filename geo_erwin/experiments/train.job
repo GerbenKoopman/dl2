@@ -8,11 +8,17 @@
 #SBATCH --time=01:20:00
 #SBATCH --output=outputs/train_%j.out
 
-# Load necessary modules
-module purge
-module load Anaconda3/2024.06-1
+# # Load necessary modules
+# module purge
+# module load Anaconda3/2024.06-1
 
-# Activate the Conda environment
+# # Activate the Conda environment
+# source activate erwin
+
+module purge
+module load 2023
+module load Anaconda3/2023.07-2
+
 source activate erwin
 
 # Actual script
