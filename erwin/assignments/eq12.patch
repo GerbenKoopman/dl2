@@ -1,0 +1,35 @@
+# Invariant equation eq.12
+# Class located at ± models/pointtransformer.py:115
+import torch
+
+
+# START OLD CODE
+class BallPooling(nn.Module):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+        ...
+        input_dim = stride * dim + stride * dimensionality
+# END OLD CODE
+
+
+# START PATCHED CODE
+class BallPooling(nn.Module):
+    def __init__(self, dim: int, stride: int, dimensionality: int = 3):
+        ...
+        input_dim = stride * dim + stride * 1
+
+    def forward(self, node: Node) -> Node:
+        if self.stride == 1: # no pooling
+            return Node(x=node.x, pos=node.pos, batch_idx=node.batch_idx, children=node)
+
+        with torch.no_grad():
+            batch_idx = node.batch_idx[::self.stride]
+            centers = reduce(node.pos, "(n s) d -> n d", 'mean', s=self.stride)
+            pos = rearrange(node.pos, "(n s) d -> n s d", s=self.stride)
+            distances = torch.norm(pos - centers[:, None], dim=2)  # shape: (n, s)
+
+        # Use distances instead of relative positions in concatenation
+        x = torch.cat([rearrange(node.x, "(n s) c -> n (s c)", s=self.stride), distances], dim=1)
+        x = self.norm(self.proj(x))
+
+        return Node(x=x, pos=centers, batch_idx=batch_idx, children=node)
+# END PATCHED CODE
