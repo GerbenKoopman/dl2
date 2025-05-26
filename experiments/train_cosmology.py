@@ -61,13 +61,60 @@ def parse_args():
         "--test", action="store_true", default=True, help="Whether to run testing"
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--pooling-type", 
+        type=str, 
+        default="RelDistRelPosMv", 
+        choices=["RelDist", "RelDistRelPosMv"],
+        help="Type of pooling strategy"
+    )
+    parser.add_argument(
+        "--unpooling-type", 
+        type=str, 
+        default="RelDistRelPosMv", 
+        choices=["RelDist", "RelDistRelPosMv"],
+        help="Type of unpooling strategy"
+    )
+    parser.add_argument(
+        "--use-distance-bias",
+        action=argparse.BooleanOptionalAction, 
+        default=True, 
+        help="Whether to use distance-based attention bias in BallMSA (overrides config and model default)"
+    )
+    parser.add_argument(
+        "--dimensionality",
+        type=int,
+        default=3,
+        help="Spatial dimensionality of the input data (e.g., 3 for 3D points)"
+    )
+    parser.add_argument(
+        "--algebra-dimensionality",
+        type=int,
+        default=16,
+        help="Dimensionality of the geometric algebra (e.g., 16 for G(3,0,1))"
+    )
+    parser.add_argument(
+        "--mp-steps",
+        type=int,
+        default=3, # Default to 0, specific configs can override, CLI can override further
+        help="Number of message passing steps in the MPNN Embedding"
+    )
+    parser.add_argument(
+        "--mpnn-type",
+        type=str,
+        default="original",
+        choices=["scalar_only", "original"], # scalar only is faster but less expressive
+        help="Type of MPNN to use"
+    )
 
     return parser.parse_args()
 
 
 erwin_configs = {
+    # Simplified configs: pooling, unpooling, dim, algebra_dim, use_dist_bias removed
+    # mp_steps and mpnn_type remain for specific variants, but can be overridden by CLI
 
-    "smallest": # this one doesn't use MPNN
+    "smallest": 
     {
         "c_in": 8,
         "c_hidden": [8, 16],
@@ -78,37 +125,8 @@ erwin_configs = {
         "strides": [2],
         "ball_sizes": [128, 128],
         "rotate": 0,
-        "mp_steps": 0,
-        "use_distance_bias": True,
-        "mpnn_type": "scalar_only",
-    },
-    "smallest_mp_original": { # this one uses the scalar and multivector MPNN
-        "c_in": 8,
-        "c_hidden": [8, 16],
-        "enc_num_heads": [2, 4],
-        "enc_depths": [2, 2],
-        "dec_num_heads": [2],
-        "dec_depths": [2],  
-        "strides": [2],
-        "ball_sizes": [128, 128],
-        "rotate": 0,
-        "mp_steps": 3,
-        "use_distance_bias": True,
-        "mpnn_type": "original",
-    },
-    "smallest_mp_scalar": { # this one uses the scalar-only MPNN
-        "c_in": 8,
-        "c_hidden": [8, 16],
-        "enc_num_heads": [2, 4],
-        "enc_depths": [2, 2],
-        "dec_num_heads": [2],
-        "dec_depths": [2],
-        "strides": [2],
-        "ball_sizes": [128, 128],
-        "rotate": 0,
-        "mp_steps": 3,
-        "use_distance_bias": True,
-        "mpnn_type": "scalar_only",
+        "mp_steps": 0, # Explicitly 0 for non-MPNN version
+        "mpnn_type": "original", # Default, relevant if mp_steps > 0
     },
     "small": {
         "c_in": 32,
@@ -120,6 +138,7 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
+        # mp_steps, mpnn_type will use CLI defaults (0, scalar_only) unless overridden by CLI
     },
     "medium": {
         "c_in": 64,
@@ -157,7 +176,22 @@ if __name__ == "__main__":
     torch.cuda.manual_seed(args.seed)
 
     if args.model == "erwin":
-        model_config = erwin_configs[args.size]
+        # Start with the base config for the chosen size
+        model_config = erwin_configs[args.size].copy()
+
+        # Override/set parameters directly from CLI arguments
+        # These CLI arguments will always take precedence
+        model_config["pooling_type"] = args.pooling_type
+        model_config["unpooling_type"] = args.unpooling_type
+        model_config["dimensionality"] = args.dimensionality
+        model_config["algebra_dimensionality"] = args.algebra_dimensionality
+        model_config["mpnn_type"] = args.mpnn_type
+        model_config["mp_steps"] = args.mp_steps
+        
+        # Handle use_distance_bias:
+        if args.use_distance_bias is not None:
+            model_config["use_distance_bias"] = args.use_distance_bias
+        
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
