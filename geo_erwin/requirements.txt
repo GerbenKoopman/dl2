@@ -3,7 +3,7 @@ addict==2.4.0
 annotated-types==0.6.0
 appdirs==1.4.4
 astunparse==1.6.3
-balltree==0.0.0
+# balltree==0.0.0
 Bottleneck==1.4.2
 Brotli==1.0.9
 ccimport==0.4.4
