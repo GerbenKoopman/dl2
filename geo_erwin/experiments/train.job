@@ -21,7 +21,7 @@ module load 2023
 module load Anaconda3/2023.07-2
 
 
-cd $HOME/projects/dl2/erwin/geo_erwin/
+cd ~/projects/dl2/erwin/geo_erwin/
 
 source activate erwin
 
