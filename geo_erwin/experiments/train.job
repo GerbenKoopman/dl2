@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
 #SBATCH --time=01:20:00
-#SBATCH --output=outputs/train.out
+#SBATCH --output=outputs/train_%j.out
 
 # Load necessary modules
 module purge
