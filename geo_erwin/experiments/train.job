@@ -20,4 +20,4 @@ source activate erwin
 module load CUDA/12.6.0 
 
 # Actual script
-python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
+srun python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
