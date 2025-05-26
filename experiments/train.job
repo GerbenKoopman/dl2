@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_h100
+#SBATCH --gpus=1
+#SBATCH --job-name=pretokenize
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=3
+#SBATCH --time=01:20:00
+#SBATCH --output=outputs/train.out
+
+# Load necessary modules
+module purge
+module load 2024
+module load Anaconda3/2024.06-1
+
+# Activate the Conda environment
+source activate erwin
+
+# Load CUDA after activating conda
+module load CUDA/12.6.0 
+
+# Actual script
+python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
