@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit, to_cuda
-from erwin.models.erwin import ErwinTransformer
-from erwin.experiments.datasets import MDDataset
-from erwin.experiments.wrappers import MDModel
+from geo_erwin.training import fit, to_cuda
+from geo_erwin.models.erwin import ErwinTransformer
+from geo_erwin.experiments.datasets import MDDataset
+from geo_erwin.experiments.wrappers import MDModel
 
 
 def parse_args():

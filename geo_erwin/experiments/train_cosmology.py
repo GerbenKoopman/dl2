@@ -10,10 +10,10 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit, to_cuda
-from erwin.models.erwin import ErwinTransformer
-from erwin.experiments.datasets import CosmologyDataset
-from erwin.experiments.wrappers import CosmologyModel
+from geo_erwin.training import fit, to_cuda
+from geo_erwin.models.erwin import ErwinTransformer
+from geo_erwin.experiments.datasets import CosmologyDataset
+from geo_erwin.experiments.wrappers import CosmologyModel
 
 
 def parse_args():

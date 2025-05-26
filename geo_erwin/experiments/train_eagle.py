@@ -9,10 +9,10 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit, to_cuda, load_checkpoint
-from erwin.models.erwin import ErwinTransformer
-from erwin.experiments.datasets import EagleDataset
-from erwin.experiments.wrappers import EagleModel
+from geo_erwin.training import fit, to_cuda, load_checkpoint
+from geo_erwin.models.erwin import ErwinTransformer
+from geo_erwin.experiments.datasets import EagleDataset
+from geo_erwin.experiments.wrappers import EagleModel
 
 
 def parse_args():
