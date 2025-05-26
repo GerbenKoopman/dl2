@@ -22,5 +22,4 @@ module load Anaconda3/2023.07-2
 source activate erwin
 
 # Actual script
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 srun python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
