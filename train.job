@@ -23,4 +23,4 @@ source activate erwin
 # cd experiments # This line is no longer needed as we run from project root
 
 # Actual script
-srun python train_cosmology.py --data-path "../datasets/cosmology" --size "small_mp" --batch-size 16 --use-wandb
+srun python experiments/train_cosmology.py --data-path "datasets/cosmology" --size "small_mp" --batch-size 16 --use-wandb
