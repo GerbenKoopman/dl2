@@ -15,8 +15,7 @@ module load Anaconda3/2024.06-1
 # Load CUDA after Anaconda3 and before activating conda env
 module load CUDA/12.0.0 
 
-# Activate the Conda environment
-source activate erwin
+conda env remove --name erwin
 
 # Actual script
-conda env update --file environment.yml --prune
+conda create --name erwin --file requirements.txt
