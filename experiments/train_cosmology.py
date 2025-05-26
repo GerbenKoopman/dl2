@@ -29,7 +29,7 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest", "smallest_mp", "small", "medium", "large"],
+        choices=["smallest", "smallest_mp", "small", "small_mp", "medium", "large"],
         help="Model size configuration",
     )
     parser.add_argument(
