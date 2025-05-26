@@ -14,14 +14,14 @@
 
 # # Activate the Conda environment
 # source activate erwin
-source /etc/profile.d/modules.sh
+source ~/etc/profile.d/modules.sh
 
 module purge
 module load 2023
 module load Anaconda3/2023.07-2
 
 
-cd $HOME/projects/dl2/erwin/
+cd $HOME/projects/dl2/geo_erwin/
 
 source activate erwin
 
