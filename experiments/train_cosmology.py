@@ -29,7 +29,7 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest", "smallest_mp", "small", "medium", "large"],
+        choices=["smallest", "smallest_mp_original", "smallest_mp_scalar", "small", "medium", "large"],
         help="Model size configuration",
     )
     parser.add_argument(
@@ -66,7 +66,9 @@ def parse_args():
 
 
 erwin_configs = {
-    "smallest": {
+
+    "smallest": # this one doesn't use MPNN
+    {
         "c_in": 8,
         "c_hidden": [8, 16],
         "enc_num_heads": [2, 4],
@@ -78,8 +80,23 @@ erwin_configs = {
         "rotate": 0,
         "mp_steps": 0,
         "use_distance_bias": True,
+        "mpnn_type": "scalar_only",
     },
-    "smallest_mp": {
+    "smallest_mp_original": { # this one uses the scalar and multivector MPNN
+        "c_in": 8,
+        "c_hidden": [8, 16],
+        "enc_num_heads": [2, 4],
+        "enc_depths": [2, 2],
+        "dec_num_heads": [2],
+        "dec_depths": [2],  
+        "strides": [2],
+        "ball_sizes": [128, 128],
+        "rotate": 0,
+        "mp_steps": 3,
+        "use_distance_bias": True,
+        "mpnn_type": "original",
+    },
+    "smallest_mp_scalar": { # this one uses the scalar-only MPNN
         "c_in": 8,
         "c_hidden": [8, 16],
         "enc_num_heads": [2, 4],
@@ -91,6 +108,7 @@ erwin_configs = {
         "rotate": 0,
         "mp_steps": 3,
         "use_distance_bias": True,
+        "mpnn_type": "scalar_only",
     },
     "small": {
         "c_in": 32,
