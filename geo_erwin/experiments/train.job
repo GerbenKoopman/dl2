@@ -13,7 +13,7 @@ module purge
 module load 2024
 module load Anaconda3/2024.06-1
 # Load CUDA after Anaconda3 and before activating conda env
-module load CUDA/12.0.0 
+module load CUDA/12.1.1 
 
 # Activate the Conda environment
 source activate erwin
