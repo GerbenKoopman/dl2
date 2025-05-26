@@ -2,11 +2,11 @@
 
 #SBATCH --partition=gpu_a100
 #SBATCH --gpus=1
-#SBATCH --job-name=training_geo_erwin
+#SBATCH --job-name=environment
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=3
-#SBATCH --time=01:20:00
-#SBATCH --output=outputs/train_%j.out
+#SBATCH --time=00:10:00
+#SBATCH --output=outputs/environment_%j.out
 
 # Load necessary modules
 module purge
@@ -19,4 +19,4 @@ module load CUDA/12.0.0
 source activate erwin
 
 # Actual script
-srun python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
+conda env update --file environment.yml --prune
