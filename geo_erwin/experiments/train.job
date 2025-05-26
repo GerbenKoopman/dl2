@@ -8,18 +8,19 @@
 #SBATCH --time=02:00:00
 #SBATCH --output=outputs/train_%j.out
 
-source ~/etc/profile.d/modules.sh
+source /etc/profile.d/modules.sh
 
 module purge
 module load 2023
 module load Anaconda3/2023.07-2
 
 
-# cd ~/projects/dl2/erwin/geo_erwin/
+# cd to project root directory
+cd ~/projects/dl2/erwin/geo_erwin/experiments
 
 source activate erwin
 
-# cd experiments
+# cd experiments # This line is no longer needed as we run from project root
 
 # Actual script
 srun python train_cosmology.py --data-path "../cosmology_data" --size "small_mp" --batch-size 16 --use-wandb
