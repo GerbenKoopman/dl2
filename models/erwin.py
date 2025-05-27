@@ -38,10 +38,10 @@ class ErwinEmbedding(nn.Module):
     """Linear projection -> MPNN."""
 
     def __init__(
-        self, 
-        in_dim: int, 
-        dim: int, 
-        mp_steps: int, 
+        self,
+        in_dim: int,
+        dim: int,
+        mp_steps: int,
         dimensionality: int = 3,
         mpnn_type: str = "scalar_only"  # New parameter to specify MPNN type
     ):
@@ -54,7 +54,7 @@ class ErwinEmbedding(nn.Module):
             in_s_channels=in_dim,
             out_s_channels=dim,
         )
-        
+
         # Select MPNN type based on parameter
         if mpnn_type == "scalar_only":
             self.mpnn = DistanceBasedScalarOnlyMPNN(dim, mp_steps, mlp_ratio=2)
@@ -119,7 +119,7 @@ class BallMSA(nn.Module):
         """ Distance-based attention bias (eq. 10). """
         if not self.use_distance_bias:
             return None
-            
+
         pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
         # Create attention mask based on pairwise distances
         attention_bias = self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
@@ -146,8 +146,8 @@ class BallMSA(nn.Module):
 
         # Apply GATr's SelfAttention per ball with the distance-based attention mask
         mv_attended, sc_attended = self.attention(
-            multivectors=mv_reshaped, 
-            scalars=sc_reshaped, 
+            multivectors=mv_reshaped,
+            scalars=sc_reshaped,
             attention_mask=attention_mask
         )
         # mv_attended shape: (num_balls, ball_size, feature_dim, algebra_dim)
@@ -165,12 +165,12 @@ class UpdateModule(nn.Module):
     def __init__(self, dim_channel: int):
         super().__init__()
         self.equi_linear = EquiLinear(
-            in_mv_channels=2 * dim_channel, 
+            in_mv_channels=2 * dim_channel,
             out_mv_channels=dim_channel,
             in_s_channels=2 * dim_channel,
             out_s_channels=dim_channel
         )
-        self.norm = EquiLayerNorm() 
+        self.norm = EquiLayerNorm()
 
     def forward(self, mv_in: torch.Tensor, sc_in: torch.Tensor):
         mv_processed, sc_processed = self.equi_linear(mv_in, sc_in)
@@ -207,11 +207,7 @@ class ErwinTransformerBlock(nn.Module):
             )
         )
 
-        self.reference_mv = construct_reference_multivector(
-            "canonical", torch.ones(dimensionality)
-        )
-
-    def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor):
+    def forward(self, mv: torch.Tensor, sc: torch.Tensor, pos: torch.Tensor, reference_mv: torch.Tensor):
 
         # Store original for residual connection
         mv_residual, sc_residual = mv, sc
@@ -226,9 +222,7 @@ class ErwinTransformerBlock(nn.Module):
         mv_residual, sc_residual = mv, sc
 
         # GeoMPL.forward is (mv, sc)
-        mv, sc = self.geo_mlp(
-            *self.norm2(mv, sc), reference_mv=self.reference_mv.to(mv.device)
-        )
+        mv, sc = self.geo_mlp(*self.norm2(mv, sc), reference_mv=reference_mv)
 
         # Second residual connection
         return mv + mv_residual, sc + sc_residual
@@ -289,11 +283,11 @@ class BasicLayer(nn.Module):
             else:
                 raise ValueError(f"Unknown unpooling_type: {unpooling_type}")
 
-    def forward(self, node: Node) -> Node:
+    def forward(self, node: Node, reference_mv: torch.Tensor) -> Node:
         node = self.unpool(node)
         for blk in self.blocks:
             # Process the node through the block
-            mv, sc = blk(node.mv, node.sc, node.pos)
+            mv, sc = blk(node.mv, node.sc, node.pos, reference_mv=reference_mv)
             node.mv = mv
             node.sc = sc
 
@@ -361,9 +355,9 @@ class ErwinTransformer(nn.Module):
         self.strides = strides
 
         self.embed = ErwinEmbedding(
-            in_dim=c_in, 
-            dim=c_hidden[0], 
-            mp_steps=mp_steps, 
+            in_dim=c_in,
+            dim=c_hidden[0],
+            mp_steps=mp_steps,
             dimensionality=algebra_dimensionality, # ErwinEmbedding expects GA dimensionality
             mpnn_type=mpnn_type
         )
@@ -405,7 +399,7 @@ class ErwinTransformer(nn.Module):
             algebra_dimensionality=algebra_dimensionality,
             use_distance_bias=use_distance_bias,
             # Bottleneck doesn't pool/unpool, so types are not strictly needed but pass for consistency
-            pooling_type=pooling_type, 
+            pooling_type=pooling_type,
             unpooling_type=unpooling_type,
         )
 
@@ -434,7 +428,7 @@ class ErwinTransformer(nn.Module):
         self.in_dim = c_in
         self.out_dim = c_hidden[0]
         # Pass spatial dimensionality, used by pooling/unpooling if they embed positions
-        self.dimensionality = dimensionality 
+        self.dimensionality = dimensionality
         self.apply(self._init_weights)
 
     # No need to initialize weights of nn.Linaer, nn.LayerNorm
@@ -477,6 +471,7 @@ class ErwinTransformer(nn.Module):
                     node_positions, radius, batch=batch_idx, loop=True
                 )
 
+        self.reference_mv = construct_reference_multivector('data', node_features_mv)
         mv, sc = self.embed(
             node_features_mv, node_features_sc, node_positions, edge_index
         )
@@ -490,13 +485,13 @@ class ErwinTransformer(nn.Module):
         )
 
         for layer in self.encoder:
-            node = layer(node)
+            node = layer(node, self.reference_mv)
 
-        node = self.bottleneck(node)
+        node = self.bottleneck(node, self.reference_mv)
 
         if self.decode:
             for layer in self.decoder:
-                node = layer(node)
+                node = layer(node, self.reference_mv)
             return (
                 node.mv[tree_mask][torch.argsort(tree_idx[tree_mask])],
                 node.sc[tree_mask][torch.argsort(tree_idx[tree_mask])],

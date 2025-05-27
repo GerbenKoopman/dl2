@@ -11,12 +11,12 @@ from gatr.interface import (
 
 
 class Embedding(nn.Module):
-    def __init__(self):
+    def __init__(self, out_dim=16):
         super().__init__()
+        self.pos_embedding = EquiLinear(1, out_dim, 1, out_dim)
 
     def forward(self, pos):
-        mv = embed_point(pos)
-        return mv.unsqueeze(-2)
+        return self.pos_embedding(embed_point(pos).unsqueeze(1))
 
 
 class CosmologyModel(nn.Module):
@@ -43,14 +43,7 @@ class CosmologyModel(nn.Module):
         )
 
     def forward(self, node_positions, **kwargs):
-        node_features_mv = self.embedding_model(node_positions)  # Shape [bs*nodes, 16]
-
-        # Create scalar features with 16 channels as all zeros: WHY ALL ZEROS? => maybe worth to try all ones etc.
-        node_features_sc = torch.zeros(
-            node_features_mv.shape[0],
-            self.main_model.in_dim,
-            device=node_features_mv.device,
-        )
+        node_features_mv, node_features_sc = self.embedding_model(node_positions)
 
         # Run the main model
         mv_output, sc_output = self.main_model(
