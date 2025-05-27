@@ -49,7 +49,7 @@ class ErwinEmbedding(nn.Module):
         self.mp_steps = mp_steps
         # in_mv is 1 channel (from embed_point). in_s is in_dim (e.g., 16) channels.
         self.embed_fn = EquiLinear(
-            in_mv_channels=1,
+            in_mv_channels=in_dim,
             out_mv_channels=dim,
             in_s_channels=in_dim,
             out_s_channels=dim,
