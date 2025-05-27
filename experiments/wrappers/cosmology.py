@@ -11,7 +11,7 @@ from gatr.interface import (
 
 
 class Embedding(nn.Module):
-    def __init__(self, out_dim=16):
+    def __init__(self, out_dim):
         super().__init__()
         self.pos_embedding = EquiLinear(1, out_dim, 1, out_dim)
 
@@ -23,7 +23,7 @@ class CosmologyModel(nn.Module):
     def __init__(self, main_model):
         super().__init__()
         self.main_model = main_model
-        self.embedding_model = Embedding()
+        self.embedding_model = Embedding(main_model.in_dim)
 
         # First EquiLinear layer
         self.pred_head1 = EquiLinear(
