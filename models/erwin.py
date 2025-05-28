@@ -22,7 +22,7 @@ from gatr.layers import (
 )
 from gatr.layers.mlp import MLPConfig, ScalarGatedNonlinearity
 from gatr.interface import embed_point, embed_translation
-from gatr.utils.tensors import construct_reference_multivector
+# from gatr.utils.tensors import construct_reference_multivector
 
 from .mpnn_variants import MPNN, DistanceBasedScalarOnlyMPNN
 from .ball_pooling_unpooling_variants import (
@@ -32,6 +32,7 @@ from .ball_pooling_unpooling_variants import (
     BallUnpoolingRelDistRelPosMv,
     Node,
 )
+
 
 
 class ErwinEmbedding(nn.Module):
@@ -463,13 +464,16 @@ class ErwinTransformer(nn.Module):
                     node_positions, radius, batch=batch_idx, loop=True
                 )
 
-        print(f"node_features_mv.shape: {node_features_mv.shape}")
-
+        #  rn (BSxN)xCx16
+        #  we want BSxNxCx16
         self.reference_mv = construct_reference_multivector('data', node_features_mv)
+        #  rn BSx1x1x16
+        #  we want BSx(1x1)x16 = BSx1x16
 
         mv, sc = self.embed(
             node_features_mv, node_features_sc, node_positions, edge_index
         )
+
 
         node = Node(
             mv=mv[tree_idx],
@@ -493,3 +497,46 @@ class ErwinTransformer(nn.Module):
             )
 
         return node.mv, node.sc, node.batch_idx
+
+
+
+def construct_reference_multivector(reference, inputs: torch.Tensor) -> torch.Tensor:
+    """Constructs a reference vector for the equivariant join.
+
+    Parameters
+    ----------
+    reference : Tensor with shape (..., 16) or {"data", "canonical"}
+        Reference multivector for the equivariant joint operation. If "data", a
+        reference multivector is constructed from the mean of the input multivectors. If
+        "canonical", a constant canonical reference multivector is used instead.
+    inputs : Tensor with shape (..., num_items_1, num_items_2, in_mv_channels, 16)
+        Input multivectors.
+
+    Returns
+    -------
+    reference_mv : Tensor with shape (..., 16)
+        Reference multivector for the equivariant join.
+
+    Raises
+    ------
+    ValueError
+        If `reference` is neither "data", "canonical", nor a Tensor.
+    """
+
+    if reference == "data":
+        # When using torch-geometric-style batching, this code should be adapted to perform the
+        # mean over the items in each batch, but not over the batch dimension.
+        # We leave this as an exercise for the practitioner :)
+        mean_dim = tuple(range(0, len(inputs.shape) - 1))
+        reference_mv = torch.mean(inputs, dim=mean_dim, keepdim=True)  # (batch, 1, ..., 1, 16)
+    elif reference == "canonical":
+        reference_mv = torch.zeros(16, device=inputs.device, dtype=inputs.dtype)
+        reference_mv[..., [14, 15]] = 1.0
+    else:
+        if not isinstance(reference, torch.Tensor):
+            raise ValueError(
+                'Reference needs to be "data", "canonical", or torch.Tensor, but found {reference}'
+            )
+        reference_mv = reference
+
+    return reference_mv

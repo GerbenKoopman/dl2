@@ -8,7 +8,7 @@ from gatr.interface import (
     embed_oriented_plane,
     extract_point,
 )
-
+from gatr.layers.mlp import GeoMLP, MLPConfig
 
 class Embedding(nn.Module):
     def __init__(self, out_dim):
@@ -25,22 +25,14 @@ class CosmologyModel(nn.Module):
         self.main_model = main_model
         self.embedding_model = Embedding(main_model.in_dim)
 
-        # First EquiLinear layer
-        self.pred_head1 = EquiLinear(
-            in_mv_channels=main_model.out_dim,
-            out_mv_channels=main_model.out_dim,
-            in_s_channels=main_model.out_dim,
-            out_s_channels=main_model.out_dim,
+        mlp_config = MLPConfig(
+            mv_channels=(main_model.out_dim, main_model.out_dim, 1),
+            s_channels=(main_model.out_dim, main_model.out_dim, 1),
+            activation='gelu',
+            dropout_prob=0
         )
-        # Nonlinearity
-        self.nonlin = ScalarGatedNonlinearity("gelu")
-        # Second EquiLinear layer
-        self.pred_head2 = EquiLinear(
-            in_mv_channels=main_model.out_dim,
-            out_mv_channels=1,
-            in_s_channels=main_model.out_dim,
-            out_s_channels=1,
-        )
+
+        self.pred_head = GeoMLP(config=mlp_config)
 
     def forward(self, node_positions, **kwargs):
         node_features_mv, node_features_sc = self.embedding_model(node_positions)
@@ -50,12 +42,8 @@ class CosmologyModel(nn.Module):
             node_features_mv, node_features_sc, node_positions, **kwargs
         )
 
-        # First layer
-        mv_hidden, sc_hidden = self.pred_head1(mv_output, sc_output)
-        # Nonlinearity
-        mv_hidden, sc_hidden = self.nonlin(mv_hidden, sc_hidden)
-        # Second layer
-        mv_pred, sc_pred = self.pred_head2(mv_hidden, sc_hidden)
+        mv_pred, sc_pred = self.pred_head(mv_output, sc_output, reference_mv=self.main_model.reference_mv)
+
 
         # Extract translation components (bivector indices 4, 5, 6)
         # velocity = mv_pred[..., [4, 5, 6]]
