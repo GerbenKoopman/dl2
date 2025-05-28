@@ -47,13 +47,6 @@ class ErwinEmbedding(nn.Module):
     ):
         super().__init__()
         self.mp_steps = mp_steps
-        # in_mv is 1 channel (from embed_point). in_s is in_dim (e.g., 16) channels.
-        self.embed_fn = EquiLinear(
-            in_mv_channels=in_dim,
-            out_mv_channels=dim,
-            in_s_channels=in_dim,
-            out_s_channels=dim,
-        )
 
         # Select MPNN type based on parameter
         if mpnn_type == "scalar_only":
@@ -68,7 +61,6 @@ class ErwinEmbedding(nn.Module):
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
-        mv, sc = self.embed_fn(mv, sc)
         if isinstance(self.mpnn, DistanceBasedScalarOnlyMPNN):
             # For scalar-only MPNN, we only pass and return scalar features
             sc = self.mpnn(sc, pos, edge_index) if self.mp_steps > 0 else sc
@@ -471,7 +463,10 @@ class ErwinTransformer(nn.Module):
                     node_positions, radius, batch=batch_idx, loop=True
                 )
 
+        print(f"node_features_mv.shape: {node_features_mv.shape}")
+
         self.reference_mv = construct_reference_multivector('data', node_features_mv)
+
         mv, sc = self.embed(
             node_features_mv, node_features_sc, node_positions, edge_index
         )
