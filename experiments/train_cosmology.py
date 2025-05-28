@@ -138,7 +138,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
-        # mp_steps, mpnn_type will use CLI defaults (0, scalar_only) unless overridden by CLI
+        "mp_steps": 0, # Will be overridden by CLI
+        "mpnn_type": "original", # Will be overridden by CLI
     },
     "medium": {
         "c_in": 64,
@@ -150,6 +151,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
+        "mp_steps": 0, # Will be overridden by CLI
+        "mpnn_type": "original", # Will be overridden by CLI
     },
     "large": {
         "c_in": 128,
@@ -161,6 +164,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
+        "mp_steps": 0, # Will be overridden by CLI
+        "mpnn_type": "original", # Will be overridden by CLI
     },
 }
 
