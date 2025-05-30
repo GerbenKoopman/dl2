@@ -209,7 +209,7 @@ model_cls = {
 }
 
 
-def evaluate_robustness(model, test_dataset, config, num_transforms=10):
+def evaluate_robustness(model, test_dataset, config, num_transforms=3):
     """Evaluate model robustness on transformed data."""
 
     # Original performance
@@ -222,14 +222,14 @@ def evaluate_robustness(model, test_dataset, config, num_transforms=10):
     )
 
     original_stats = validate(model, original_loader, config)
-    original_loss = original_stats["val/loss"]
+    original_loss = original_stats["avg/val/loss"]
     print(f"Original loss: {original_loss:.4f}")
 
     # Test on transformed data
     transform_results = []
     for i in range(num_transforms):
         transformed_dataset = RotatedCosmologyDataset(
-            test_dataset, device="cuda", seed=i
+            test_dataset, device="cpu", seed=i
         )
         transformed_loader = DataLoader(
             transformed_dataset,
@@ -240,7 +240,7 @@ def evaluate_robustness(model, test_dataset, config, num_transforms=10):
         )
 
         transformed_stats = validate(model, transformed_loader, config)
-        transformed_loss = transformed_stats["val/loss"]
+        transformed_loss = transformed_stats["avg/val/loss"]
 
         # Get transformation parameters
         angles = transformed_dataset.angles
