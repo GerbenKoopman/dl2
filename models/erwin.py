@@ -51,9 +51,10 @@ class ErwinEmbedding(nn.Module):
 
         # Select MPNN type based on parameter
         if mpnn_type == "scalar_only":
-            self.mpnn = DistanceBasedScalarOnlyMPNN(dim, mp_steps, mlp_ratio=2)
-        else: # mpnn_type == "original" which is using both scalar and multivector MPNN, 3 times slower both more accurate
-            self.mpnn = MPNN(dim, mp_steps, 16)  # Original MPNN as fallback
+            self.mpnn = DistanceBasedScalarOnlyMPNN(dim, mp_steps, mlp_ratio=2, dropout=dropout)
+
+        # mpnn_type == "original" which is using both scalar and multivector MPNN, 3 times slower both more accurate
+        else:
 
     def forward(
         self,
@@ -249,7 +250,12 @@ class BasicLayer(nn.Module):
         self.blocks = nn.ModuleList(
             [
                 ErwinTransformerBlock(
-                    hidden_dim, num_heads, ball_size, mlp_ratio, algebra_dimensionality, use_distance_bias=use_distance_bias
+                    hidden_dim,
+                    num_heads,
+                    ball_size,
+                    mlp_ratio,
+                    algebra_dimensionality,
+                    use_distance_bias=use_distance_bias,
                 )
                 for _ in range(depth)
             ]
@@ -330,13 +336,13 @@ class ErwinTransformer(nn.Module):
         rotate: int,
         decode: bool = True,
         mlp_ratio: int = 4,
-        dimensionality: int = 3, # Spatial dimensionality
-        algebra_dimensionality: int = 16, # GA dimensionality
+        dimensionality: int = 3,  # Spatial dimensionality
+        algebra_dimensionality: int = 16,  # GA dimensionality
         mp_steps: int = 3,
         use_distance_bias: bool = False,
         mpnn_type: str = "scalar_only",
-        pooling_type: str = "RelDistRelPosMv", # New parameter
-        unpooling_type: str = "RelDistRelPosMv", # New parameter
+        pooling_type: str = "RelDistRelPosMv",  # New parameter
+        unpooling_type: str = "RelDistRelPosMv",  # New parameter
     ):
         super().__init__()
         assert len(enc_num_heads) == len(enc_depths) == len(ball_sizes)
@@ -349,10 +355,9 @@ class ErwinTransformer(nn.Module):
         self.strides = strides
 
         self.embed = ErwinEmbedding(
-            in_dim=c_in,
             dim=c_hidden[0],
             mp_steps=mp_steps,
-            dimensionality=algebra_dimensionality, # ErwinEmbedding expects GA dimensionality
+            mpnn_type=mpnn_type,
             mpnn_type=mpnn_type
         )
 
@@ -371,11 +376,11 @@ class ErwinTransformer(nn.Module):
                     ball_size=ball_sizes[i],
                     rotate=rotate > 0,
                     mlp_ratio=mlp_ratio,
-                    dimensionality=dimensionality, # Pass spatial dimensionality
-                    algebra_dimensionality=algebra_dimensionality, # Pass GA dimensionality
+                    dimensionality=dimensionality,  # Pass spatial dimensionality
+                    algebra_dimensionality=algebra_dimensionality,  # Pass GA dimensionality
                     use_distance_bias=use_distance_bias,
-                    pooling_type=pooling_type, # Pass pooling_type
-                    unpooling_type=unpooling_type, # Pass unpooling_type
+                    pooling_type=pooling_type,  # Pass pooling_type
+                    unpooling_type=unpooling_type,  # Pass unpooling_type
                 )
             )
 
@@ -414,8 +419,8 @@ class ErwinTransformer(nn.Module):
                         dimensionality=dimensionality,
                         algebra_dimensionality=algebra_dimensionality,
                         use_distance_bias=use_distance_bias,
-                        pooling_type=pooling_type, # Pass pooling_type
-                        unpooling_type=unpooling_type, # Pass unpooling_type
+                        pooling_type=pooling_type,  # Pass pooling_type
+                        unpooling_type=unpooling_type,  # Pass unpooling_type
                     )
                 )
 
