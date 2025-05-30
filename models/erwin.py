@@ -40,11 +40,10 @@ class ErwinEmbedding(nn.Module):
 
     def __init__(
         self,
-        in_dim: int,
         dim: int,
         mp_steps: int,
-        dimensionality: int = 3,
-        mpnn_type: str = "scalar_only"  # New parameter to specify MPNN type
+        mpnn_type: str = "scalar_only",  # New parameter to specify MPNN type
+        dropout: float = 0.0,  # Default dropout for GeoMLP
     ):
         super().__init__()
         self.mp_steps = mp_steps
@@ -55,6 +54,7 @@ class ErwinEmbedding(nn.Module):
 
         # mpnn_type == "original" which is using both scalar and multivector MPNN, 3 times slower both more accurate
         else:
+            self.mpnn = MPNN(dim, mp_steps, 16, dropout=dropout)  # Original MPNN as fallback
 
     def forward(
         self,
@@ -181,6 +181,7 @@ class ErwinTransformerBlock(nn.Module):
         mlp_ratio: int,
         dimensionality: int = 16,
         use_distance_bias: bool = False,
+        dropout: float = 0.0,
     ):
         super().__init__()
         self.ball_size = ball_size
@@ -199,6 +200,7 @@ class ErwinTransformerBlock(nn.Module):
                 mv_channels=[dim, dim * mlp_ratio, dim],
                 s_channels=[dim, dim * mlp_ratio, dim],
                 activation="gelu",
+                dropout_prob=dropout,
             )
         )
 
@@ -242,6 +244,7 @@ class BasicLayer(nn.Module):
         use_distance_bias: bool = False,
         pooling_type: str = "RelDistRelPosMv", # New parameter
         unpooling_type: str = "RelDistRelPosMv", # New parameter
+        dropout: float = 0.0,  # Default dropout for GeoMLP
     ):
         super().__init__()
         hidden_dim = in_dim if direction == "down" else out_dim
@@ -256,6 +259,7 @@ class BasicLayer(nn.Module):
                     mlp_ratio,
                     algebra_dimensionality,
                     use_distance_bias=use_distance_bias,
+                    dropout=dropout
                 )
                 for _ in range(depth)
             ]
@@ -343,6 +347,7 @@ class ErwinTransformer(nn.Module):
         mpnn_type: str = "scalar_only",
         pooling_type: str = "RelDistRelPosMv",  # New parameter
         unpooling_type: str = "RelDistRelPosMv",  # New parameter
+        dropout: float = 0.0,  # Default dropout for GeoMLP
     ):
         super().__init__()
         assert len(enc_num_heads) == len(enc_depths) == len(ball_sizes)
@@ -358,7 +363,7 @@ class ErwinTransformer(nn.Module):
             dim=c_hidden[0],
             mp_steps=mp_steps,
             mpnn_type=mpnn_type,
-            mpnn_type=mpnn_type
+            dropout=dropout
         )
 
         num_layers = len(enc_depths) - 1  # last one is a bottleneck
@@ -381,6 +386,7 @@ class ErwinTransformer(nn.Module):
                     use_distance_bias=use_distance_bias,
                     pooling_type=pooling_type,  # Pass pooling_type
                     unpooling_type=unpooling_type,  # Pass unpooling_type
+                    dropout=dropout,  # Pass dropout for GeoMLP
                 )
             )
 
@@ -400,6 +406,7 @@ class ErwinTransformer(nn.Module):
             # Bottleneck doesn't pool/unpool, so types are not strictly needed but pass for consistency
             pooling_type=pooling_type,
             unpooling_type=unpooling_type,
+            dropout=dropout,  # Pass dropout for GeoMLP
         )
 
         if decode:
@@ -421,6 +428,7 @@ class ErwinTransformer(nn.Module):
                         use_distance_bias=use_distance_bias,
                         pooling_type=pooling_type,  # Pass pooling_type
                         unpooling_type=unpooling_type,  # Pass unpooling_type
+                        dropout=dropout,  # Pass dropout for GeoMLP
                     )
                 )
 

@@ -106,6 +106,12 @@ def parse_args():
         choices=["scalar_only", "original"], # scalar only is faster but less expressive
         help="Type of MPNN to use"
     )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout rate for the model (default: 0.0)",
+    )
 
     return parser.parse_args()
 
@@ -114,7 +120,7 @@ erwin_configs = {
     # Simplified configs: pooling, unpooling, dim, algebra_dim, use_dist_bias removed
     # mp_steps and mpnn_type remain for specific variants, but can be overridden by CLI
 
-    "smallest": 
+    "smallest":
     {
         "c_in": 8,
         "c_hidden": [8, 16],
@@ -127,6 +133,7 @@ erwin_configs = {
         "rotate": 0,
         "mp_steps": 0, # Explicitly 0 for non-MPNN version
         "mpnn_type": "original", # Default, relevant if mp_steps > 0
+        "dropout": 0.0,
     },
     "small": {
         "c_in": 32,
@@ -140,10 +147,11 @@ erwin_configs = {
         "ball_sizes": [256, 256, 256, 256],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
     "medium": {
         "c_in": 64,
-        "c_hidden": [32, 64, 128, 256],
+        "c_hidden": [64, 128, 256, 512],
         "enc_num_heads": [2, 4, 8, 16],
         "enc_depths": [2, 2, 6, 2],
         "dec_num_heads": [2, 4, 8],
@@ -153,6 +161,7 @@ erwin_configs = {
         "ball_sizes": [512, 512, 512, 512],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
     "large": {
         "c_in": 128,
@@ -166,6 +175,7 @@ erwin_configs = {
         "ball_sizes": [256, 256, 256, 256],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
 }
 
@@ -192,10 +202,12 @@ if __name__ == "__main__":
         model_config["algebra_dimensionality"] = args.algebra_dimensionality
         model_config["mpnn_type"] = args.mpnn_type or "original"
         model_config["mp_steps"] = args.mp_steps or 0
+        model_config["dropout"] = args.dropout or 0.0
+
         # Handle use_distance_bias:
         if args.use_distance_bias is not None:
             model_config["use_distance_bias"] = args.use_distance_bias
-        
+
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 

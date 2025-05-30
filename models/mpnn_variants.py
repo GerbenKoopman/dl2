@@ -85,6 +85,7 @@ class MPNN(nn.Module):
                         mv_channels=[2*dim, 2 * mlp_ratio * dim, dim],
                         s_channels=[2*dim + 1, 2 * mlp_ratio * dim , dim], # +1 for the relative distance
                         activation="gelu",
+                        dropout_prob=dropout,
                     )
                 )
                 for _ in range(mp_steps)
@@ -177,6 +178,7 @@ class DistanceBasedScalarOnlyMPNN(nn.Module):
             nn.Sequential(
                 nn.Linear(2 * dim + 1, mlp_ratio * dim),  # +1 for the scalar distance
                 nn.GELU(),
+                nn.Dropout(dropout),
                 nn.Linear(mlp_ratio * dim, dim),
                 nn.LayerNorm(dim)
             ) for _ in range(mp_steps)
@@ -186,6 +188,7 @@ class DistanceBasedScalarOnlyMPNN(nn.Module):
         self.update_fns = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(2 * dim, dim),
+                nn.Dropout(dropout),
                 nn.LayerNorm(dim)
             ) for _ in range(mp_steps)
         ])
