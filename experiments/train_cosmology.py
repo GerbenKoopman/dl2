@@ -17,6 +17,7 @@ from erwin.experiments.wrappers import CosmologyModel
 
 from data_transformations import RotatedCosmologyDataset
 
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -75,45 +76,48 @@ def parse_args():
         type=str,
         default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
-        help="Type of pooling strategy"
+        help="Type of pooling strategy",
     )
     parser.add_argument(
         "--unpooling-type",
         type=str,
         default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
-        help="Type of unpooling strategy"
+        help="Type of unpooling strategy",
     )
     parser.add_argument(
         "--use-distance-bias",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Whether to use distance-based attention bias in BallMSA (overrides config and model default)"
+        help="Whether to use distance-based attention bias in BallMSA (overrides config and model default)",
     )
     parser.add_argument(
         "--dimensionality",
         type=int,
         default=3,
-        help="Spatial dimensionality of the input data (e.g., 3 for 3D points)"
+        help="Spatial dimensionality of the input data (e.g., 3 for 3D points)",
     )
     parser.add_argument(
         "--algebra-dimensionality",
         type=int,
         default=16,
-        help="Dimensionality of the geometric algebra (e.g., 16 for G(3,0,1))"
+        help="Dimensionality of the geometric algebra (e.g., 16 for G(3,0,1))",
     )
     parser.add_argument(
         "--mp-steps",
         type=int,
-        default=3, # Default to 0, specific configs can override, CLI can override further
-        help="Number of message passing steps in the MPNN Embedding"
+        default=3,  # Default to 0, specific configs can override, CLI can override further
+        help="Number of message passing steps in the MPNN Embedding",
     )
     parser.add_argument(
         "--mpnn-type",
         type=str,
         default="original",
-        choices=["scalar_only", "original"], # scalar only is faster but less expressive
-        help="Type of MPNN to use"
+        choices=[
+            "scalar_only",
+            "original",
+        ],  # scalar only is faster but less expressive
+        help="Type of MPNN to use",
     )
     parser.add_argument(
         "--dropout",
@@ -152,8 +156,8 @@ erwin_configs = {
         "strides": [2],
         "ball_sizes": [128, 128],
         "rotate": 0,
-        "mp_steps": 0, # Explicitly 0 for non-MPNN version
-        "mpnn_type": "original", # Default, relevant if mp_steps > 0
+        "mp_steps": 0,  # Explicitly 0 for non-MPNN version
+        "mpnn_type": "original",  # Default, relevant if mp_steps > 0
         "dropout": 0.0,
     },
     "small": {
@@ -166,8 +170,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
-        "mp_steps": 0, # Will be overridden by CLI
-        "mpnn_type": "original", # Will be overridden by CLI
+        "mp_steps": 0,  # Will be overridden by CLI
+        "mpnn_type": "original",  # Will be overridden by CLI
         "dropout": 0.0,
     },
     "medium": {
@@ -180,8 +184,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [512, 512, 512, 512],
-        "mp_steps": 0, # Will be overridden by CLI
-        "mpnn_type": "original", # Will be overridden by CLI
+        "mp_steps": 0,  # Will be overridden by CLI
+        "mpnn_type": "original",  # Will be overridden by CLI
         "dropout": 0.0,
     },
     "large": {
@@ -194,8 +198,8 @@ erwin_configs = {
         "strides": [2, 2, 2],
         "rotate": 0,
         "ball_sizes": [256, 256, 256, 256],
-        "mp_steps": 0, # Will be overridden by CLI
-        "mpnn_type": "original", # Will be overridden by CLI
+        "mp_steps": 0,  # Will be overridden by CLI
+        "mpnn_type": "original",  # Will be overridden by CLI
         "dropout": 0.0,
     },
 }
@@ -207,52 +211,53 @@ model_cls = {
 
 def evaluate_robustness(model, test_dataset, config, num_transforms=10):
     """Evaluate model robustness on transformed data."""
-    
+
     # Original performance
     original_loader = DataLoader(
         test_dataset,
-        batch_size=config.get('batch_size', 16),
+        batch_size=config.get("batch_size", 16),
         shuffle=False,
         collate_fn=test_dataset.collate_fn,
         num_workers=4,
     )
-    
+
     original_stats = validate(model, original_loader, config)
-    original_loss = original_stats['val/loss']
-    print(f"Original loss: {original_loss:.4f}")
-    
+    original_loss = original_stats["val/loss"]
+    print(f"Original loss: {original_loss:.4f}")s
+
     # Test on transformed data
     transform_results = []
     for i in range(num_transforms):
-        transformed_dataset = RotatedCosmologyDataset(test_dataset, device='cuda', seed=i)
+        transformed_dataset = RotatedCosmologyDataset(
+            test_dataset, device="cuda", seed=i
+        )
         transformed_loader = DataLoader(
             transformed_dataset,
-            batch_size=config.get('batch_size', 16),
+            batch_size=config.get("batch_size", 16),
             shuffle=False,
             collate_fn=test_dataset.collate_fn,
             num_workers=4,
         )
-        
+
         transformed_stats = validate(model, transformed_loader, config)
-        transformed_loss = transformed_stats['val/loss']
-        
+        transformed_loss = transformed_stats["val/loss"]
+
         # Get transformation parameters
         angles = transformed_dataset.angles
         determinant = transformed_dataset.determinant
-        
+
         transform_result = {
-            'loss': transformed_loss,
-            'angles': angles,
-            'determinant': determinant
+            "loss": transformed_loss,
+            "angles": angles,
+            "determinant": determinant,
         }
         transform_results.append(transform_result)
-        
-        print(f"[{angles[0]:.2f}, {angles[1]:.2f}, {angles[2]:.2f}], {determinant}, {transformed_loss:.4f}")
 
-    return {
-        'original_loss': original_loss,
-        'transform_results': transform_results
-    }
+        print(
+            f"[{angles[0]:.2f}, {angles[1]:.2f}, {angles[2]:.2f}], {determinant}, {transformed_loss:.4f}"
+        )
+
+    return {"original_loss": original_loss, "transform_results": transform_results}
 
 
 if __name__ == "__main__":
@@ -351,13 +356,12 @@ if __name__ == "__main__":
         100,
         200,
     )
-    
+
     # After training, evaluate robustness
     if args.test:
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("ROBUSTNESS EVALUATION")
-        print("="*50)
+        print("=" * 50)
         robustness_results = evaluate_robustness(model, test_dataset, config)
         print("\nRobustness Results dict:")
         print(robustness_results)
-

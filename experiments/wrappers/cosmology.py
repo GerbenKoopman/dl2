@@ -10,6 +10,7 @@ from gatr.interface import (
 )
 from gatr.layers.mlp import GeoMLP, MLPConfig
 
+
 class Embedding(nn.Module):
     def __init__(self, out_dim):
         super().__init__()
@@ -26,10 +27,10 @@ class CosmologyModel(nn.Module):
         self.embedding_model = Embedding(main_model.in_dim)
 
         mlp_config = MLPConfig(
-            mv_channels=(main_model.out_dim, main_model.out_dim, 1),
-            s_channels=(main_model.out_dim, main_model.out_dim, 1),
-            activation='gelu',
-            dropout_prob=0
+            mv_channels=[main_model.out_dim, main_model.out_dim, 1],
+            s_channels=[main_model.out_dim, main_model.out_dim, 1],
+            activation="gelu",
+            dropout_prob=0,
         )
 
         self.pred_head = GeoMLP(config=mlp_config)
@@ -42,8 +43,9 @@ class CosmologyModel(nn.Module):
             node_features_mv, node_features_sc, node_positions, **kwargs
         )
 
-        mv_pred, sc_pred = self.pred_head(mv_output, sc_output, reference_mv=self.main_model.reference_mv)
-
+        mv_pred, _ = self.pred_head(
+            mv_output, sc_output, reference_mv=self.main_model.reference_mv
+        )
 
         # Extract translation components (bivector indices 4, 5, 6)
         # velocity = mv_pred[..., [4, 5, 6]]
