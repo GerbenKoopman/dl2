@@ -10,11 +10,12 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
-from erwin.training import fit, to_cuda
+from erwin.training import fit, to_cuda, validate
 from erwin.models.erwin import ErwinTransformer
 from erwin.experiments.datasets import CosmologyDataset
 from erwin.experiments.wrappers import CosmologyModel
 
+from data_transformations import RotatedCosmologyDataset
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -174,6 +175,56 @@ model_cls = {
 }
 
 
+def evaluate_robustness(model, test_dataset, config, num_transforms=10):
+    """Evaluate model robustness on transformed data."""
+    
+    # Original performance
+    original_loader = DataLoader(
+        test_dataset,
+        batch_size=config.get('batch_size', 16),
+        shuffle=False,
+        collate_fn=test_dataset.collate_fn,
+        num_workers=4,
+    )
+    
+    original_stats = validate(model, original_loader, config)
+    original_loss = original_stats['val/loss']
+    print(f"Original loss: {original_loss:.4f}")
+    
+    # Test on transformed data
+    transform_results = []
+    for i in range(num_transforms):
+        transformed_dataset = RotatedCosmologyDataset(test_dataset, device='cuda', seed=i)
+        transformed_loader = DataLoader(
+            transformed_dataset,
+            batch_size=config.get('batch_size', 16),
+            shuffle=False,
+            collate_fn=test_dataset.collate_fn,
+            num_workers=4,
+        )
+        
+        transformed_stats = validate(model, transformed_loader, config)
+        transformed_loss = transformed_stats['val/loss']
+        
+        # Get transformation parameters
+        angles = transformed_dataset.angles
+        determinant = transformed_dataset.determinant
+        
+        transform_result = {
+            'loss': transformed_loss,
+            'angles': angles,
+            'determinant': determinant
+        }
+        transform_results.append(transform_result)
+        
+        print(f"[{angles[0]:.2f}, {angles[1]:.2f}, {angles[2]:.2f}], {determinant}, {transformed_loss:.4f}")
+
+    return {
+        'original_loss': original_loss,
+        'transform_results': transform_results
+    }
+
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -257,6 +308,7 @@ if __name__ == "__main__":
     config = vars(args)
     config.update(model_config)
 
+    # Run training
     fit(
         config,
         model,
@@ -268,3 +320,13 @@ if __name__ == "__main__":
         100,
         200,
     )
+    
+    # After training, evaluate robustness
+    if args.test:
+        print("\n" + "="*50)
+        print("ROBUSTNESS EVALUATION")
+        print("="*50)
+        robustness_results = evaluate_robustness(model, test_dataset, config)
+        print("\nRobustness Results dict:")
+        print(robustness_results)
+
