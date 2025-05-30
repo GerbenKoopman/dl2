@@ -53,8 +53,8 @@ To understand the code, it is beneficial to understand the original Erwin code, 
 ## Model Architecture Visualized
 
 <div align="center">
-  <img src="Geometric Erwin Model Pipeline (part 1).png" alt="Description of Image 1" width="600" /><br />
-  <img src="Geometric Erwin Model Pipeline (part 2).png" alt="Description of Image 2" width="600" /><br />
+  <img src="Geometric Erwin Model Pipeline (part 1).png" alt="Description of Image 1" width="1000" /><br />
+  <img src="Geometric Erwin Model Pipeline (part 2).png" alt="Description of Image 2" width="1000" /><br />
   <figcaption><b>Figure 1:</b> Simplified architecture overview of GeoErwin based on GATr primitives.</figcaption>
 </div>
 
