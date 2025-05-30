@@ -30,7 +30,15 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest", "smallest_mp_original", "smallest_mp_scalar", "small", "medium", "large"],
+        choices=[
+            "custom_geo",
+            "smallest",
+            "smallest_mp_original",
+            "smallest_mp_scalar",
+            "small",
+            "medium",
+            "large",
+        ],
         help="Model size configuration",
     )
     parser.add_argument(
@@ -63,23 +71,23 @@ def parse_args():
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--pooling-type", 
-        type=str, 
-        default="RelDistRelPosMv", 
+        "--pooling-type",
+        type=str,
+        default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
         help="Type of pooling strategy"
     )
     parser.add_argument(
-        "--unpooling-type", 
-        type=str, 
-        default="RelDistRelPosMv", 
+        "--unpooling-type",
+        type=str,
+        default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
         help="Type of unpooling strategy"
     )
     parser.add_argument(
         "--use-distance-bias",
-        action=argparse.BooleanOptionalAction, 
-        default=True, 
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Whether to use distance-based attention bias in BallMSA (overrides config and model default)"
     )
     parser.add_argument(
@@ -107,6 +115,12 @@ def parse_args():
         choices=["scalar_only", "original"], # scalar only is faster but less expressive
         help="Type of MPNN to use"
     )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout rate for the model (default: 0.0)",
+    )
 
     return parser.parse_args()
 
@@ -114,9 +128,21 @@ def parse_args():
 erwin_configs = {
     # Simplified configs: pooling, unpooling, dim, algebra_dim, use_dist_bias removed
     # mp_steps and mpnn_type remain for specific variants, but can be overridden by CLI
-
-    "smallest": 
-    {
+    "custom_geo": {
+        "c_in": 4,
+        "c_hidden": [4, 8],
+        "enc_num_heads": [2, 4],
+        "enc_depths": [2, 2],
+        "dec_num_heads": [2],
+        "dec_depths": [2],
+        "strides": [2],
+        "ball_sizes": [128, 128],
+        "rotate": 0,
+        "mp_steps": 3,  # Explicitly 3 for non-MPNN version
+        "mpnn_type": "original",  # Default, relevant if mp_steps > 0
+        "dropout": 0.0,
+    },
+    "smallest": {
         "c_in": 8,
         "c_hidden": [8, 16],
         "enc_num_heads": [2, 4],
@@ -128,6 +154,7 @@ erwin_configs = {
         "rotate": 0,
         "mp_steps": 0, # Explicitly 0 for non-MPNN version
         "mpnn_type": "original", # Default, relevant if mp_steps > 0
+        "dropout": 0.0,
     },
     "small": {
         "c_in": 32,
@@ -141,23 +168,25 @@ erwin_configs = {
         "ball_sizes": [256, 256, 256, 256],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
     "medium": {
         "c_in": 64,
-        "c_hidden": [32, 64, 128, 256],
+        "c_hidden": [64, 128, 256, 512],
         "enc_num_heads": [2, 4, 8, 16],
         "enc_depths": [2, 2, 6, 2],
         "dec_num_heads": [2, 4, 8],
         "dec_depths": [2, 2, 2],
         "strides": [2, 2, 2],
         "rotate": 0,
-        "ball_sizes": [256, 256, 256, 256],
+        "ball_sizes": [512, 512, 512, 512],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
     "large": {
         "c_in": 128,
-        "c_hidden": [32, 64, 128, 256],
+        "c_hidden": [128, 256, 512, 1024],
         "enc_num_heads": [2, 4, 8, 16],
         "enc_depths": [2, 2, 6, 2],
         "dec_num_heads": [2, 4, 8],
@@ -167,6 +196,7 @@ erwin_configs = {
         "ball_sizes": [256, 256, 256, 256],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
+        "dropout": 0.0,
     },
 }
 
@@ -241,13 +271,14 @@ if __name__ == "__main__":
         model_config["unpooling_type"] = args.unpooling_type
         model_config["dimensionality"] = args.dimensionality
         model_config["algebra_dimensionality"] = args.algebra_dimensionality
-        model_config["mpnn_type"] = args.mpnn_type
-        model_config["mp_steps"] = args.mp_steps
-        
+        model_config["mpnn_type"] = args.mpnn_type or "original"
+        model_config["mp_steps"] = args.mp_steps or 0
+        model_config["dropout"] = args.dropout or 0.0
+
         # Handle use_distance_bias:
         if args.use_distance_bias is not None:
             model_config["use_distance_bias"] = args.use_distance_bias
-        
+
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 

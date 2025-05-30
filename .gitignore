@@ -3,6 +3,8 @@ balltree/
 cosmology_data/
 datasets/
 wandb/
+logs/
+outputs/
 
 *.zip
 *.pyc

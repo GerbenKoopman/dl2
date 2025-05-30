@@ -102,6 +102,9 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
     best_val_loss = float('inf')
     max_steps = config["num_epochs"]
 
+    if max_steps % config["val_every_iter"] != 0:
+        raise ValueError(f"num_epochs ({max_steps}) must be divisible by val_every_iter ({config['val_every_iter']})")
+
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
         for batch in iterator:
