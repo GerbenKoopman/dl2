@@ -49,3 +49,13 @@ python train_cosmology.py --data-path ../datasets/cosmology
 
 ## Structure of project
 To understand the code, it is beneficial to understand the original Erwin code, as the code resembles the original Erwin code closely. This project adheres to the source material, with minimal changes to make the model geometric using the GATr library. Consequently, the main changes occur in `models/erwin.py` and `models/mpnn.py`.
+
+## Model Architecture Visualized
+
+<div align="center">
+  <img src="Geometric Erwin Model Pipeline (part 1).png" alt="Description of Image 1" width="400" /><br />
+  <img src="Geometric Erwin Model Pipeline (part 2)" alt="Description of Image 2" width="400" /><br />
+  <figcaption><b>Figure 1:</b> Simplified architecture overview of GeoErwin based on GATr primitives.</figcaption>
+</div>
+
+
