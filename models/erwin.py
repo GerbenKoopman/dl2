@@ -61,6 +61,7 @@ class ErwinEmbedding(nn.Module):
         sc: torch.Tensor,
         pos: torch.Tensor,
         edge_index: torch.Tensor,
+        reference_mv: torch.Tensor | None = None,
     ):
         if isinstance(self.mpnn, DistanceBasedScalarOnlyMPNN):
             # For scalar-only MPNN, we only pass and return scalar features
@@ -68,7 +69,7 @@ class ErwinEmbedding(nn.Module):
             return mv, sc  # mv passes through unchanged
         else:
             # Original MPNN behavior
-            return self.mpnn(mv, sc, pos, edge_index) if self.mp_steps > 0 else (mv, sc)
+            return self.mpnn(mv, sc, reference_mv, pos, edge_index) if self.mp_steps > 0 else (mv, sc)
 
 
 class BallMSA(nn.Module):
@@ -471,9 +472,8 @@ class ErwinTransformer(nn.Module):
         #  we want BSx(1x1)x16 = BSx1x16
 
         mv, sc = self.embed(
-            node_features_mv, node_features_sc, node_positions, edge_index
+            node_features_mv, node_features_sc, node_positions, edge_index, self.reference_mv
         )
-
 
         node = Node(
             mv=mv[tree_idx],

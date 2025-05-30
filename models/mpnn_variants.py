@@ -75,11 +75,8 @@ class MPNN(nn.Module):
         h_i' = MLP([h_i, m_i])                      update
     """
 
-    def __init__(self, dim: int, mp_steps: int, dimensionality: int = 3, mlp_ratio: int = 2):
+    def __init__(self, dim: int, mp_steps: int, dimensionality: int = 3, mlp_ratio: int = 2, dropout: float = 0.0):
         super().__init__()
-        self.reference_mv = construct_reference_multivector(
-            "canonical", torch.ones(dimensionality)
-        )
 
         self.message_fns = nn.ModuleList(
             [
@@ -107,6 +104,7 @@ class MPNN(nn.Module):
         update_fn: nn.Module,
         mv: torch.Tensor,
         sc: torch.Tensor,
+        reference_mv: torch.Tensor,
         edge_attr: torch.Tensor,
         edge_index: torch.Tensor,
     ):
@@ -126,8 +124,8 @@ class MPNN(nn.Module):
         sc_msg_input = torch.cat([sc[row], sc[col], edge_attr], dim=-1)
         
         # Compute messages using GeoMLP
-        mv_messages, sc_messages = message_fn(mv_msg_input, sc_msg_input, self.reference_mv.to(mv.device))
-        
+        mv_messages, sc_messages = message_fn(mv_msg_input, sc_msg_input, reference_mv)
+
         # Aggregate messages per receiver node (col)
         mv_agg = scatter_mean(mv_messages, col, mv.size(0))
         sc_agg = scatter_mean(sc_messages, col, sc.size(0))
@@ -152,14 +150,15 @@ class MPNN(nn.Module):
         self,
         mv: torch.Tensor,
         sc: torch.Tensor,
+        reference_mv: torch.Tensor,
         pos: torch.Tensor,
         edge_index: torch.Tensor,
     ):
         edge_attr = self.compute_edge_attr(pos, edge_index)
         for message_fn, update_fn in zip(self.message_fns, self.update_fns):
-            mv, sc = self.layer(message_fn, update_fn, mv, sc, edge_attr, edge_index)
-            
-        return mv, sc 
+            mv, sc = self.layer(message_fn, update_fn, mv, sc, reference_mv, edge_attr, edge_index)
+
+        return mv, sc
 
 class DistanceBasedScalarOnlyMPNN(nn.Module):
     """
