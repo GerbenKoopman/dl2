@@ -150,7 +150,7 @@ erwin_configs = {
         "dec_depths": [2, 2, 2],
         "strides": [2, 2, 2],
         "rotate": 0,
-        "ball_sizes": [256, 256, 256, 256],
+        "ball_sizes": [512, 512, 512, 512],
         "mp_steps": 0, # Will be overridden by CLI
         "mpnn_type": "original", # Will be overridden by CLI
     },
