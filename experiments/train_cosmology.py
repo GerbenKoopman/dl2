@@ -62,23 +62,23 @@ def parse_args():
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--pooling-type", 
-        type=str, 
-        default="RelDistRelPosMv", 
+        "--pooling-type",
+        type=str,
+        default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
         help="Type of pooling strategy"
     )
     parser.add_argument(
-        "--unpooling-type", 
-        type=str, 
-        default="RelDistRelPosMv", 
+        "--unpooling-type",
+        type=str,
+        default="RelDistRelPosMv",
         choices=["RelDist", "RelDistRelPosMv"],
         help="Type of unpooling strategy"
     )
     parser.add_argument(
         "--use-distance-bias",
-        action=argparse.BooleanOptionalAction, 
-        default=True, 
+        action=argparse.BooleanOptionalAction,
+        default=True,
         help="Whether to use distance-based attention bias in BallMSA (overrides config and model default)"
     )
     parser.add_argument(
@@ -190,9 +190,8 @@ if __name__ == "__main__":
         model_config["unpooling_type"] = args.unpooling_type
         model_config["dimensionality"] = args.dimensionality
         model_config["algebra_dimensionality"] = args.algebra_dimensionality
-        model_config["mpnn_type"] = args.mpnn_type
-        model_config["mp_steps"] = args.mp_steps
-        
+        model_config["mpnn_type"] = args.mpnn_type or "original"
+        model_config["mp_steps"] = args.mp_steps or 0
         # Handle use_distance_bias:
         if args.use_distance_bias is not None:
             model_config["use_distance_bias"] = args.use_distance_bias
