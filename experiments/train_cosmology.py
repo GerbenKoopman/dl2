@@ -29,7 +29,15 @@ def parse_args():
         "--size",
         type=str,
         default="small",
-        choices=["smallest", "smallest_mp_original", "smallest_mp_scalar", "small", "medium", "large"],
+        choices=[
+            "custom_geo",
+            "smallest",
+            "smallest_mp_original",
+            "smallest_mp_scalar",
+            "small",
+            "medium",
+            "large",
+        ],
         help="Model size configuration",
     )
     parser.add_argument(
@@ -119,9 +127,21 @@ def parse_args():
 erwin_configs = {
     # Simplified configs: pooling, unpooling, dim, algebra_dim, use_dist_bias removed
     # mp_steps and mpnn_type remain for specific variants, but can be overridden by CLI
-
-    "smallest":
-    {
+    "custom_geo": {
+        "c_in": 4,
+        "c_hidden": [4, 8],
+        "enc_num_heads": [2, 4],
+        "enc_depths": [2, 2],
+        "dec_num_heads": [2],
+        "dec_depths": [2],
+        "strides": [2],
+        "ball_sizes": [128, 128],
+        "rotate": 0,
+        "mp_steps": 3,  # Explicitly 3 for non-MPNN version
+        "mpnn_type": "original",  # Default, relevant if mp_steps > 0
+        "dropout": 0.0,
+    },
+    "smallest": {
         "c_in": 8,
         "c_hidden": [8, 16],
         "enc_num_heads": [2, 4],
@@ -165,7 +185,7 @@ erwin_configs = {
     },
     "large": {
         "c_in": 128,
-        "c_hidden": [32, 64, 128, 256],
+        "c_hidden": [128, 256, 512, 1024],
         "enc_num_heads": [2, 4, 8, 16],
         "enc_depths": [2, 2, 6, 2],
         "dec_num_heads": [2, 4, 8],
