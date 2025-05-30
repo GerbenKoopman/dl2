@@ -223,7 +223,7 @@ def evaluate_robustness(model, test_dataset, config, num_transforms=10):
 
     original_stats = validate(model, original_loader, config)
     original_loss = original_stats["val/loss"]
-    print(f"Original loss: {original_loss:.4f}")s
+    print(f"Original loss: {original_loss:.4f}")
 
     # Test on transformed data
     transform_results = []
